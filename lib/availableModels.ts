@@ -27,6 +27,12 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     provider: "Groq",
     enabled: true,
   },
+  {
+    id: "mistral-small",
+    name: "Mistral Small",
+    provider: "Mistral",
+    enabled: true,
+  },
   // Paid models — shown for the full comparison story, wire up later
   // once you're ready to spend a little (or once you have credits).
   {

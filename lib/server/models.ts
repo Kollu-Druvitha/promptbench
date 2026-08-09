@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { groq } from "@ai-sdk/groq";
+import { mistral } from "@ai-sdk/mistral";
 import { TestResult } from "@/lib/types";
 
 // -----------------------------------------------------------------------
@@ -22,6 +23,7 @@ const PRICING_PER_1K_TOKENS: Record<string, number> = {
   "gemini-2.5-flash": 0,
   "llama-3.3-70b": 0,
   "llama-3.1-8b": 0,
+  "mistral-small": 0, // free tier on Mistral's Experiment (no-credit-card) plan
   "gpt-4-turbo": 0.01,
   "claude-3-opus": 0.015,
 };
@@ -35,6 +37,8 @@ function getModel(modelId: string) {
       return groq("llama-3.3-70b-versatile");
     case "llama-3.1-8b":
       return groq("llama-3.1-8b-instant");
+    case "mistral-small":
+      return mistral("mistral-small-latest");
     default:
       throw new Error(
         `Model "${modelId}" is not wired up yet. Check lib/server/models.ts.`
@@ -47,6 +51,7 @@ export const MODEL_DISPLAY: Record<string, { name: string; provider: string }> =
   "gemini-2.5-flash": { name: "Gemini 2.0 Flash", provider: "Google" },
   "llama-3.3-70b": { name: "Llama 3.3 70B", provider: "Groq" },
   "llama-3.1-8b": { name: "Llama 3.1 8B", provider: "Groq" },
+  "mistral-small": { name: "Mistral Small", provider: "Mistral" },
 };
 
 export interface ModelCallError {
