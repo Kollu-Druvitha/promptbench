@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AVAILABLE_MODELS, TEST_TYPE_OPTIONS } from "@/lib/availableModels";
 import { submitTest } from "@/lib/api";
@@ -14,6 +14,55 @@ export default function TestForm() {
     AVAILABLE_MODELS.filter((m) => m.enabled).map((m) => m.id)
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [contextFileName, setContextFileName] = useState<string | null>(null);
+  const [contextText, setContextText] = useState<string | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Text formats we can actually read and chunk. PDFs are not supported yet
+  // (would need a parsing library) — we say so instead of silently failing.
+  const SUPPORTED_CONTEXT_EXT = ["txt", "md", "csv", "json", "log"];
+
+  function clearContextFile() {
+    setContextFileName(null);
+    setContextText(null);
+    setReadError(null);
+  }
+
+  async function handleContextFile(file: File) {
+    setReadError(null);
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!SUPPORTED_CONTEXT_EXT.includes(ext)) {
+      setReadError(
+        `Cannot parse .${ext} yet — use .txt, .md, .csv, .json, or .log.`
+      );
+      setContextFileName(null);
+      setContextText(null);
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setReadError("File too large — please use a text file under 2 MB.");
+      setContextFileName(null);
+      setContextText(null);
+      return;
+    }
+    try {
+      const text = await file.text();
+      if (!text.trim()) {
+        setReadError("File is empty.");
+        setContextFileName(null);
+        setContextText(null);
+        return;
+      }
+      setContextFileName(file.name);
+      setContextText(text);
+    } catch {
+      setReadError("Could not read that file.");
+      setContextFileName(null);
+      setContextText(null);
+    }
+  }
 
   function toggleModel(id: string) {
     setSelectedModels((prev) =>
@@ -29,6 +78,8 @@ export default function TestForm() {
         prompt,
         testType,
         modelIds: selectedModels,
+        contextFileName: contextFileName ?? undefined,
+        contextText: contextText ?? undefined,
       });
       router.push(`/results/${testId}`);
     } finally {
@@ -75,24 +126,83 @@ export default function TestForm() {
               Context Data (RAG)
             </h3>
           </div>
-          <div className="border-2 border-dashed border-outline-variant hover:border-primary/50 bg-surface-container-lowest/50 rounded-lg p-xl flex flex-col items-center justify-center text-center transition-colors cursor-pointer group">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.md,.csv,.json,.log"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleContextFile(file);
+              e.target.value = ""; // allow re-selecting the same file
+            }}
+          />
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) void handleContextFile(file);
+            }}
+            className={`border-2 border-dashed ${
+              isDragging
+                ? "border-primary bg-surface-container-low"
+                : "border-outline-variant hover:border-primary/50"
+            } bg-surface-container-lowest/50 rounded-lg p-xl flex flex-col items-center justify-center text-center transition-colors cursor-pointer group`}
+          >
             <div className="w-12 h-12 rounded-full bg-surface-container flex items-center justify-center mb-md group-hover:bg-surface-container-high transition-colors">
               <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary text-[24px]">
                 cloud_upload
               </span>
             </div>
-            <span className="font-body-md text-body-md text-on-surface font-medium mb-xs">
-              Drag and drop context files
-            </span>
-            <span className="font-body-sm text-body-sm text-on-surface-variant mb-md">
-              Support .txt, .pdf, .json, .csv (Max 50MB)
-            </span>
-            <button
-              type="button"
-              className="bg-surface border border-outline-variant text-on-surface px-4 py-1.5 rounded font-mono-label text-mono-label hover:border-primary transition-colors"
-            >
-              Browse Files
-            </button>
+            {contextFileName ? (
+              <>
+                <span className="font-body-md text-body-md text-on-surface font-medium mb-xs break-all">
+                  {contextFileName}
+                </span>
+                <span className="font-body-sm text-body-sm text-on-surface-variant mb-md">
+                  {contextText
+                    ? `${(contextText.match(/\S+/g) ?? []).length.toLocaleString()} words loaded — will be chunked & retrieved at run time`
+                    : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    clearContextFile();
+                  }}
+                  className="bg-surface border border-outline-variant text-on-surface px-4 py-1.5 rounded font-mono-label text-mono-label hover:border-primary transition-colors"
+                >
+                  Remove file
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="font-body-md text-body-md text-on-surface font-medium mb-xs">
+                  Drag and drop context files
+                </span>
+                <span className="font-body-sm text-body-sm text-on-surface-variant mb-md">
+                  Support .txt, .md, .csv, .json, .log (up to 2 MB)
+                </span>
+                <button
+                  type="button"
+                  className="bg-surface border border-outline-variant text-on-surface px-4 py-1.5 rounded font-mono-label text-mono-label hover:border-primary transition-colors"
+                >
+                  Browse Files
+                </button>
+              </>
+            )}
+            {readError && (
+              <span className="font-body-sm text-body-sm text-red-400 mt-2">
+                {readError}
+              </span>
+            )}
           </div>
         </div>
       </div>

@@ -1,7 +1,21 @@
+# dependencies
 node_modules
+
+# next.js build output
 .next
+
+# environment files — never commit real API keys
 .env
-.env.local
+# catches .env.development.local, .env.production.local, etc.
+.env*.local
+
+# logs / OS junk
 npm-debug.log*
 .DS_Store
+Thumbs.db
+
+# typescript incremental build cache
+*.tsbuildinfo
+
+# local app data (prompts/results stored on disk)
 data/db.json

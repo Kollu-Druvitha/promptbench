@@ -4,16 +4,18 @@ A dashboard for testing the same prompt across multiple LLMs and comparing
 quality, tokens, latency, and cost. Built with Next.js 14 (App Router),
 TypeScript, and Tailwind CSS.
 
-This is now a **fully working full-stack app** — real calls to Gemini and
-Groq, a working LLM-as-judge evaluator, and local persistence. No paid
-services required.
+This is now a **fully working full-stack app** — real calls to Groq,
+Mistral, and Gemini, a working LLM-as-judge evaluator, RAG retrieval over
+uploaded context files, and local persistence. No paid services required.
 
 ## Getting started
 
 1. Copy `.env.local.example` to `.env.local`
-2. Fill in your two free API keys:
-   - Gemini: https://aistudio.google.com/apikey (no card required)
+2. Fill in your free API keys:
    - Groq: https://console.groq.com/keys (no card required)
+   - Mistral: https://console.mistral.ai/api-keys (no card required)
+   - Gemini: https://aistudio.google.com/apikey (optional — the free
+     tier is rate-limited and can throw `limit: 0` errors)
 3. Install and run:
 
 ```bash
@@ -52,8 +54,9 @@ lib/
   badges.ts                    Shared "best quality/fastest/value" computation
   api.ts                      Client-side fetch wrappers used by TestForm/CompareView
   server/db.ts                  JSON-file storage
-  server/models.ts             Routes a model id to the right provider (Gemini/Groq)
+  server/models.ts             Routes a model id to the right provider (Groq/Mistral/Gemini)
   server/evaluator.ts          LLM-as-judge scoring logic
+  server/rag.ts                RAG chunking + TF-IDF retrieval
 ```
 
 ## Why a JSON file instead of SQLite/Postgres?
@@ -73,13 +76,30 @@ routes calling them won't need to change.
 
 ## How the evaluator works
 
-Each model's response is scored by a second call to Gemini (the
-"judge"), using a rubric tailored to the test type (coding correctness,
-summarization completeness, etc.) — modeled on promptfoo's `llm-rubric`
-grading pattern. This is a genuine quality grader, but it is **not** a
-strict factuality/hallucination checker — that requires a ground-truth
-reference answer to compare against, which this MVP doesn't collect yet
-(see "What's deferred" below).
+Each model's response is scored by a second LLM call (the "judge"), using
+a rubric tailored to the test type (coding correctness, summarization
+completeness, etc.) — modeled on promptfoo's `llm-rubric` grading pattern.
+The judge is **Groq's Llama 3.3 70B** (free and reliable) with Gemini as a
+fallback. The judge is never a model being evaluated. This is a genuine
+quality grader, but it is **not** a strict factuality/hallucination
+checker for tests without ground truth — batch evaluation against a
+labeled dataset is on the roadmap.
+
+## RAG
+
+A RAG test with an uploaded context file runs a real retrieval pipeline:
+
+1. The file text is chunked (`lib/server/rag.ts`).
+2. The most relevant passages are selected with a local TF-IDF +
+   cosine-similarity retriever — no embedding API, so no rate-limit risk.
+3. The model answers grounded in those passages via an augmented prompt.
+4. The judge grades **groundedness against the actual retrieved context**
+   (fabricating facts that aren't in the context is penalized).
+
+The retrieved passages are stored with the test and shown on the results
+page. Vector/embedding retrieval (e.g. Mistral's `mistral-embed`, reusing
+`MISTRAL_API_KEY`) can be added later behind the same `Retriever`
+interface.
 
 ## Design system
 
@@ -90,11 +110,14 @@ exactly. See that file for the full token reference.
 
 ## Models
 
-Two models are wired for v1, both chosen because they have genuinely free
-API tiers (no credit card, no billing setup):
+Four models are wired in, all chosen because they have genuinely free API
+tiers (no credit card, no billing setup):
 
-- **Gemini 2.5 Flash** (Google)
-- **Llama 3.3 70B** (Groq)
+- **Llama 3.3 70B** (Groq) — reliable
+- **Llama 3.1 8B** (Groq) — reliable
+- **Mistral Small** (Mistral) — reliable
+- **Gemini 2.0 Flash** (Google) — enabled but best-effort: the free tier
+  frequently throws `limit: 0` quota errors (known provider-side issue)
 
 `gpt-4-turbo` (OpenAI) and `claude-3-opus` (Anthropic) are visible in the
 UI but disabled ("Coming soon") — these require paid API credits. To
@@ -104,8 +127,9 @@ enable one later: add its provider package, add a case in
 ## What's deferred (not yet in this build)
 
 - GPT-4 / Claude provider integration (paid — off by default)
-- Actual parsing/use of uploaded context files for real RAG grounding
-  (the evaluator currently grades RAG responses for plausibility, not
-  against real retrieved context)
+- Vector/embedding-based retrieval (RAG currently uses a local TF-IDF
+  retriever; `mistral-embed` can be added behind the same interface)
+- PDF parsing for RAG context files (only text formats are supported)
+- Batch evaluation against a labeled dataset (on the roadmap)
 - Authentication / multi-user support (currently single-user, local-only)
 - Concurrent-write-safe storage (fine for solo local dev)

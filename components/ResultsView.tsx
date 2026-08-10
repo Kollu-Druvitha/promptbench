@@ -47,6 +47,18 @@ export default function ResultsView({ record }: { record: TestRecord }) {
         </p>
       </div>
 
+      {record.retrievedContext && (
+        <div className="bg-surface-container border border-outline-variant rounded-lg p-md mb-lg">
+          <div className="font-mono-label text-mono-label text-on-surface-variant uppercase text-xs mb-2">
+            Retrieved Context (RAG)
+            {record.contextFileName ? ` · ${record.contextFileName}` : ""}
+          </div>
+          <pre className="font-mono-label text-[12px] leading-relaxed text-on-surface whitespace-pre-wrap max-h-64 overflow-y-auto custom-scrollbar">
+            {record.retrievedContext}
+          </pre>
+        </div>
+      )}
+
       {view === "grid" ? (
         <section className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
           {record.results.map((r) => (

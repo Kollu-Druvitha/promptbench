@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callModel, isModelError, MODEL_DISPLAY } from "@/lib/server/models";
 import { evaluateResponse } from "@/lib/server/evaluator";
+import { buildRetriever, buildRagPrompt } from "@/lib/server/rag";
 import { saveTest } from "@/lib/server/db";
 import { withBadges } from "@/lib/badges";
 import { TestRecord, TestResult, TestType } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
-  let body: { prompt?: string; testType?: TestType; modelIds?: string[] };
+  let body: {
+    prompt?: string;
+    testType?: TestType;
+    modelIds?: string[];
+    contextFileName?: string;
+    contextText?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -28,10 +35,39 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // RAG: when a context file is supplied for a RAG test, retrieve the most
+  // relevant chunks (local TF-IDF — zero extra API calls), build a grounded
+  // prompt, and remember what was retrieved so the evaluator can grade
+  // groundedness against the *actual* context (not general plausibility).
+  const contextFileName: string | undefined =
+    typeof body.contextFileName === "string" ? body.contextFileName : undefined;
+  const contextText: string | undefined =
+    typeof body.contextText === "string" && body.contextText.trim()
+      ? body.contextText
+      : undefined;
+
+  let ragInfo:
+    | { promptToRun: string; retrievedContext: string }
+    | undefined;
+
+  if (testType === "rag" && contextText) {
+    const { retriever } = buildRetriever(contextText);
+    const hits = retriever.retrieve(prompt, 3);
+    const retrievedContext = hits
+      .map((h) => h.text.trim())
+      .filter(Boolean)
+      .join("\n\n---\n\n");
+    ragInfo = {
+      promptToRun: buildRagPrompt(prompt, hits),
+      retrievedContext,
+    };
+  }
+  const promptToRun = ragInfo?.promptToRun ?? prompt;
+
   // Call every selected model in parallel. Promise.allSettled means one
   // provider failing (bad key, rate limit, network) doesn't kill the others.
   const callResults = await Promise.allSettled(
-    modelIds.map((id) => callModel(id, prompt))
+    modelIds.map((id) => callModel(id, promptToRun))
   );
 
   const results: TestResult[] = [];
@@ -80,7 +116,12 @@ export async function POST(req: NextRequest) {
   // Evaluate each successful response (also in parallel).
   const evaluated = await Promise.all(
     results.map(async (r) => {
-      const { qualityScore } = await evaluateResponse(testType, prompt, r.responseText);
+      const { qualityScore } = await evaluateResponse(
+        testType,
+        prompt,
+        r.responseText,
+        ragInfo?.retrievedContext
+      );
       return { ...r, qualityScore };
     })
   );
@@ -93,6 +134,8 @@ export async function POST(req: NextRequest) {
     date: new Date().toISOString(),
     prompt,
     testType,
+    contextFileName: ragInfo ? contextFileName : undefined,
+    retrievedContext: ragInfo?.retrievedContext,
     modelsUsed: withScores.map((r) => r.modelId),
     results: withScores,
     bestModel:

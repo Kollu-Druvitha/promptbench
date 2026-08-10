@@ -35,13 +35,19 @@ export interface TestRecord {
   results: TestResult[];
   bestModel: string; // model id
   totalCost: number;
+  /** RAG only: name of the uploaded context file, if any. */
+  contextFileName?: string;
+  /** RAG only: the retrieved passages actually used to ground the answers. */
+  retrievedContext?: string;
 }
 
 export interface SubmitTestInput {
   prompt: string;
   testType: TestType;
   modelIds: string[];
-  contextFile?: File | null;
+  /** Optional RAG context: the raw text of an uploaded file + its name. */
+  contextFileName?: string;
+  contextText?: string;
 }
 
 export interface DashboardStats {

@@ -35,6 +35,8 @@ export async function submitTest(input: SubmitTestInput): Promise<{ testId: stri
       prompt: input.prompt,
       testType: input.testType,
       modelIds: input.modelIds,
+      contextFileName: input.contextFileName ?? undefined,
+      contextText: input.contextText ?? undefined,
     }),
   });
   const data = await parseJsonOrThrow(res);
