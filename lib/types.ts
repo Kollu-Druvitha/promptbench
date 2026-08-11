@@ -4,6 +4,9 @@
 
 export type TestType = "rag" | "coding" | "summarization" | "qa";
 
+/** Which RAG retrieval backend produced a test's context. */
+export type RetrievalMode = "vector" | "tfidf";
+
 export interface ModelOption {
   id: string; // stable id used by both frontend and backend, e.g. "gpt-4-turbo"
   name: string; // display name, e.g. "GPT-4 Turbo"
@@ -39,6 +42,8 @@ export interface TestRecord {
   contextFileName?: string;
   /** RAG only: the retrieved passages actually used to ground the answers. */
   retrievedContext?: string;
+  /** RAG only: which retrieval backend produced the context (vector vs tfidf). */
+  retrievalMode?: RetrievalMode;
 }
 
 export interface SubmitTestInput {

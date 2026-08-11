@@ -27,6 +27,27 @@ async function parseJsonOrThrow(res: Response) {
   return data;
 }
 
+export interface ParseContextFileResult {
+  fileName: string;
+  text: string;
+}
+
+// Upload a binary/text context file to the server-side parser (/api/parse),
+// which extracts plain text from .pdf / .docx (and passes text formats
+// through). Used by TestForm so binary documents don't need browser-side
+// parsing libraries.
+export async function parseContextFile(
+  file: File
+): Promise<ParseContextFileResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/parse", {
+    method: "POST",
+    body: form,
+  });
+  return parseJsonOrThrow(res);
+}
+
 export async function submitTest(input: SubmitTestInput): Promise<{ testId: string }> {
   const res = await fetch("/api/tests", {
     method: "POST",

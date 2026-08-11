@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AVAILABLE_MODELS, TEST_TYPE_OPTIONS } from "@/lib/availableModels";
-import { submitTest } from "@/lib/api";
+import { parseContextFile, submitTest } from "@/lib/api";
 import { TestType } from "@/lib/types";
 
 export default function TestForm() {
@@ -20,9 +20,23 @@ export default function TestForm() {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Text formats we can actually read and chunk. PDFs are not supported yet
-  // (would need a parsing library) — we say so instead of silently failing.
-  const SUPPORTED_CONTEXT_EXT = ["txt", "md", "csv", "json", "log"];
+  // Formats we can use as RAG context. Plain-text formats (.txt, .md, .csv,
+  // .json, .log) are read directly in the browser; binary documents (.pdf,
+  // .docx) are uploaded to /api/parse and parsed server-side, then the
+  // extracted text flows through the same pipeline. Legacy .doc (Word
+  // 97-2003) shows an actionable error inviting a re-save as .docx/.pdf.
+  const SUPPORTED_CONTEXT_EXT = [
+    "txt",
+    "md",
+    "csv",
+    "json",
+    "log",
+    "pdf",
+    "docx",
+    "doc",
+  ];
+  const MAX_CONTEXT_SIZE = 25 * 1024 * 1024; // 25 MB
+  const BINARY_CONTEXT_EXT = ["pdf", "docx"]; // parsed server-side
 
   function clearContextFile() {
     setContextFileName(null);
@@ -35,20 +49,32 @@ export default function TestForm() {
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     if (!SUPPORTED_CONTEXT_EXT.includes(ext)) {
       setReadError(
-        `Cannot parse .${ext} yet — use .txt, .md, .csv, .json, or .log.`
+        `Cannot parse .${ext} yet — use .txt, .md, .csv, .json, .log, .pdf, or .docx.`
       );
       setContextFileName(null);
       setContextText(null);
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setReadError("File too large — please use a text file under 2 MB.");
+    if (ext === "doc") {
+      setReadError(
+        "Legacy .doc files aren't supported — please save as .docx or .pdf and re-upload."
+      );
+      setContextFileName(null);
+      setContextText(null);
+      return;
+    }
+    if (file.size > MAX_CONTEXT_SIZE) {
+      setReadError("File too large — please use a file under 25 MB.");
       setContextFileName(null);
       setContextText(null);
       return;
     }
     try {
-      const text = await file.text();
+      // Binary documents are parsed server-side so we don't ship heavy
+      // parsing libraries (pdfjs, mammoth) to the browser bundle.
+      const text = BINARY_CONTEXT_EXT.includes(ext)
+        ? (await parseContextFile(file)).text
+        : await file.text();
       if (!text.trim()) {
         setReadError("File is empty.");
         setContextFileName(null);
@@ -57,8 +83,10 @@ export default function TestForm() {
       }
       setContextFileName(file.name);
       setContextText(text);
-    } catch {
-      setReadError("Could not read that file.");
+    } catch (err) {
+      setReadError(
+        err instanceof Error ? err.message : "Could not read that file."
+      );
       setContextFileName(null);
       setContextText(null);
     }
@@ -129,7 +157,7 @@ export default function TestForm() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt,.md,.csv,.json,.log"
+            accept=".txt,.md,.csv,.json,.log,.pdf,.docx,.doc"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -188,7 +216,7 @@ export default function TestForm() {
                   Drag and drop context files
                 </span>
                 <span className="font-body-sm text-body-sm text-on-surface-variant mb-md">
-                  Support .txt, .md, .csv, .json, .log (up to 2 MB)
+                  Support .txt, .md, .csv, .json, .log, .pdf, .docx (up to 25 MB)
                 </span>
                 <button
                   type="button"

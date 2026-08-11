@@ -38,6 +38,7 @@ app/
   api/tests/[testId]/route.ts     GET: fetch one test's results
   api/dashboard/stats/route.ts    GET: summary stats
   api/compare/route.ts            POST: run Prompt V1 vs V2
+  api/parse/route.ts              POST: extract text from uploaded .pdf / .docx / text
 components/
   SideNav.tsx                Shared navigation
   TestForm.tsx               New Test form (prompt, context upload, model select)
@@ -89,17 +90,23 @@ labeled dataset is on the roadmap.
 
 A RAG test with an uploaded context file runs a real retrieval pipeline:
 
-1. The file text is chunked (`lib/server/rag.ts`).
-2. The most relevant passages are selected with a local TF-IDF +
-   cosine-similarity retriever — no embedding API, so no rate-limit risk.
+1. The file's text is extracted (`.pdf` and `.docx` are parsed server-side
+   in `/api/parse`; plain-text formats are read directly) and chunked
+   (`lib/server/rag.ts`).
+2. The most relevant passages are selected by **dense vector retrieval** —
+   Mistral's `mistral-embed` embeddings + cosine similarity — which matches
+   *meaning*, not just keywords. If the embeddings provider is unavailable
+   (no `MISTRAL_API_KEY`, rate limit, network), it automatically falls back
+   to a local TF-IDF retriever. The results page shows which mode was used.
 3. The model answers grounded in those passages via an augmented prompt.
 4. The judge grades **groundedness against the actual retrieved context**
    (fabricating facts that aren't in the context is penalized).
 
 The retrieved passages are stored with the test and shown on the results
-page. Vector/embedding retrieval (e.g. Mistral's `mistral-embed`, reusing
-`MISTRAL_API_KEY`) can be added later behind the same `Retriever`
-interface.
+page, along with a badge for the retrieval mode. Both retrievers implement
+the same `Retriever` interface, so swapping in another backend (e.g.
+pgvector / Qdrant / an HNSW index) is a drop-in change behind
+`buildRetriever` in `lib/server/rag.ts`.
 
 ## Design system
 
@@ -127,9 +134,8 @@ enable one later: add its provider package, add a case in
 ## What's deferred (not yet in this build)
 
 - GPT-4 / Claude provider integration (paid — off by default)
-- Vector/embedding-based retrieval (RAG currently uses a local TF-IDF
-  retriever; `mistral-embed` can be added behind the same interface)
-- PDF parsing for RAG context files (only text formats are supported)
+- OCR for scanned/image-only PDFs (only embedded text is extracted today;
+  legacy `.doc` files aren't supported — re-save as `.docx`/`.pdf`)
 - Batch evaluation against a labeled dataset (on the roadmap)
 - Authentication / multi-user support (currently single-user, local-only)
 - Concurrent-write-safe storage (fine for solo local dev)

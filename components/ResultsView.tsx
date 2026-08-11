@@ -49,9 +49,24 @@ export default function ResultsView({ record }: { record: TestRecord }) {
 
       {record.retrievedContext && (
         <div className="bg-surface-container border border-outline-variant rounded-lg p-md mb-lg">
-          <div className="font-mono-label text-mono-label text-on-surface-variant uppercase text-xs mb-2">
-            Retrieved Context (RAG)
-            {record.contextFileName ? ` · ${record.contextFileName}` : ""}
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-mono-label text-mono-label text-on-surface-variant uppercase text-xs">
+              Retrieved Context (RAG)
+              {record.contextFileName ? ` · ${record.contextFileName}` : ""}
+            </div>
+            {record.retrievalMode && (
+              <span
+                className={`px-2 py-0.5 rounded-full font-mono-label text-[10px] uppercase tracking-wider border ${
+                  record.retrievalMode === "vector"
+                    ? "text-tertiary bg-tertiary-container/40 border-tertiary-fixed-dim/40"
+                    : "text-on-surface-variant bg-surface-container-low border-outline-variant"
+                }`}
+              >
+                {record.retrievalMode === "vector"
+                  ? "Semantic · embeddings"
+                  : "TF-IDF"}
+              </span>
+            )}
           </div>
           <pre className="font-mono-label text-[12px] leading-relaxed text-on-surface whitespace-pre-wrap max-h-64 overflow-y-auto custom-scrollbar">
             {record.retrievedContext}

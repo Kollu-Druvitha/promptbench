@@ -4,7 +4,7 @@ import { evaluateResponse } from "@/lib/server/evaluator";
 import { buildRetriever, buildRagPrompt } from "@/lib/server/rag";
 import { saveTest } from "@/lib/server/db";
 import { withBadges } from "@/lib/badges";
-import { TestRecord, TestResult, TestType } from "@/lib/types";
+import { TestRecord, TestResult, TestType, RetrievalMode } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
   let body: {
@@ -47,12 +47,12 @@ export async function POST(req: NextRequest) {
       : undefined;
 
   let ragInfo:
-    | { promptToRun: string; retrievedContext: string }
+    | { promptToRun: string; retrievedContext: string; mode: RetrievalMode }
     | undefined;
 
   if (testType === "rag" && contextText) {
-    const { retriever } = buildRetriever(contextText);
-    const hits = retriever.retrieve(prompt, 3);
+    const { retriever, mode } = await buildRetriever(contextText);
+    const hits = await retriever.retrieve(prompt, 3);
     const retrievedContext = hits
       .map((h) => h.text.trim())
       .filter(Boolean)
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
     ragInfo = {
       promptToRun: buildRagPrompt(prompt, hits),
       retrievedContext,
+      mode,
     };
   }
   const promptToRun = ragInfo?.promptToRun ?? prompt;
@@ -136,6 +137,7 @@ export async function POST(req: NextRequest) {
     testType,
     contextFileName: ragInfo ? contextFileName : undefined,
     retrievedContext: ragInfo?.retrievedContext,
+    retrievalMode: ragInfo?.mode,
     modelsUsed: withScores.map((r) => r.modelId),
     results: withScores,
     bestModel:
