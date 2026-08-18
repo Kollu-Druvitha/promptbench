@@ -19,3 +19,5 @@ Thumbs.db
 
 # local app data (prompts/results stored on disk)
 data/db.json
+
+INTERVIEW_CHEETSHEET.md

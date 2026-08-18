@@ -8,22 +8,19 @@ import { TestResult } from "@/lib/types";
 // Model router: given a model id, calls the right provider and returns
 // a normalized result. This is the ONE place that knows about provider
 // specifics — everything else in the app just deals with TestResult.
-//
-// To add a new model later (e.g. once you enable GPT-4/Claude):
-//   1. `npm install @ai-sdk/openai` (or whichever provider)
-//   2. Add a case below
-//   3. Flip `enabled: true` in lib/availableModels.ts
 // -----------------------------------------------------------------------
 
-// Both Gemini and Groq have free tiers — cost is $0 for these.
-// Pricing stubs are here so paid models can be added later without
-// restructuring this function.
+// NOTE: Groq deprecated llama-3.3-70b-versatile and llama-3.1-8b-instant
+// on June 17, 2026. Both now route to Groq's recommended replacement,
+// openai/gpt-oss-20b (still free tier). The internal modelId strings
+// ("llama-3.3-70b" etc.) are kept as-is so nothing else in the app needs
+// to change — only this file maps them to a real, currently-live model.
 const PRICING_PER_1K_TOKENS: Record<string, number> = {
   "gemini-2.0-flash": 0,
   "gemini-2.5-flash": 0,
   "llama-3.3-70b": 0,
   "llama-3.1-8b": 0,
-  "mistral-small": 0, // free tier on Mistral's Experiment (no-credit-card) plan
+  "mistral-small": 0,
   "gpt-4-turbo": 0.01,
   "claude-3-opus": 0.015,
 };
@@ -34,9 +31,9 @@ function getModel(modelId: string) {
     case "gemini-2.5-flash":
       return google("gemini-2.0-flash");
     case "llama-3.3-70b":
-      return groq("llama-3.3-70b-versatile");
+      return groq("openai/gpt-oss-20b");
     case "llama-3.1-8b":
-      return groq("llama-3.1-8b-instant");
+      return groq("openai/gpt-oss-20b");
     case "mistral-small":
       return mistral("mistral-small-latest");
     default:
@@ -87,7 +84,7 @@ export async function callModel(
       modelVersion: modelId,
       provider: display.provider,
       responseText: result.text,
-      qualityScore: 0, // filled in by the evaluator afterward
+      qualityScore: 0,
       tokens: totalTokens,
       latencyMs,
       costUsd,

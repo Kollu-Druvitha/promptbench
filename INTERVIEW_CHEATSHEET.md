@@ -29,6 +29,30 @@
 | **Client vs server parsing** | "Text reads in the browser; heavy PDF/DOCX libs stay server-side to keep the bundle small — `/api/parse`." |
 | **Storage (repository pattern)** | "JSON file now, but every function has the exact shape a real DB would — swap it later with zero route changes." |
 
+## 🏆 The Model-Recommendation feature (talking points)
+
+**What it is:** aggregate every stored run into a leaderboard and recommend the best model **per task type** (RAG / coding / summarization / QA) **and per priority** (quality / speed / cost).
+
+**Why it's a strong idea (say these):**
+- **It's a real product category.** "Model routing / LLM gateway" — OpenRouter, Martian, RouteLLM, LiteLLM do exactly this. I'm building a simplified version of a hot, hireable concept.
+- **Demonstrates data & statistics.** Aggregating noisy per-run scores into robust rankings: mean vs win-rate, sample-size weighting, confidence labels. Shows I think about *evidence*, not just "who won once."
+- **Demonstrates product thinking.** "Best" isn't one thing — it depends on whether you care about quality, latency, or cost. I present separate views per priority, not a single naive winner.
+- **Turns one-off tests into compounding value.** Every run makes the recommendation smarter — the product gets better with use, not just more complete.
+- **Shows LLM-awareness.** I understand judge-score variance, and I surface it (deltas vs the leader) instead of overclaiming.
+
+**The mature caveats to volunteer (this wins points):**
+- Small samples are noisy → require a minimum number of runs before recommending; show sample size.
+- Unbalanced data → a model with 3 runs must not outrank one with 30; weight by evidence.
+- A difference of < ~1 point is often judge noise → show the gap to the leader.
+
+**Resume bullets you could use:**
+- "Built a model-recommendation layer that aggregates historical eval runs and routes each task type to the best model by quality / speed / cost."
+- "Aggregated noisy LLM-judge scores using win-rates, sample-size weighting, and confidence labels to avoid overclaiming."
+- "Designed a task × priority recommender (RAG/coding/summarization/QA × quality/speed/cost) over a real stored dataset."
+
+**How to connect it to the rest of your project:** "The same badges that mark the per-run winner (`lib/badges.ts`) feed the cross-run aggregation — so the leaderboard logic is a single source of truth, and RAG now records whether it used semantic vs TF-IDF retrieval so I can also compare which retrieval mode actually improves groundedness."
+
+
 ## ❓ Top questions — 2-second answers
 
 - **What's RAG?** Give the model the right facts before you ask; reduces hallucination; lets a small model answer about your own documents.

@@ -1,23 +1,9 @@
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { groq } from "@ai-sdk/groq";
-import { TestType } from "@/lib/types";
+import { TestType, FactualityCategory } from "@/lib/types";
 
-// -----------------------------------------------------------------------
-// Evaluator: scores a model's response using a second LLM call ("judge").
-// The judge is Groq's Llama 3.3 70B (free + reliable), with Gemini as a
-// fallback. IMPORTANT: do NOT make the judge a model being evaluated, and
-// keep it on Groq — if the judge itself is unreliable it silently corrupts
-// every score, not just one model's results.
-//
-// Honest scope note: this is a general-purpose quality rubric grader,
-// adapted per test type (modeled on promptfoo's grading approach — see
-// the "llm-rubric" pattern). It is NOT a full factuality/hallucination
-// checker (that requires a ground-truth reference answer). RAG tests that
-// supply a context file are graded for groundedness against the ACTUAL
-// retrieved context (see the `context` parameter below); RAG tests without
-// a context file fall back to plausibility grading.
-// -----------------------------------------------------------------------
+const JUDGE_MODEL_ID = "openai/gpt-oss-20b";
 
 const RUBRIC_BY_TYPE: Record<TestType, string> = {
   qa: "The response directly and correctly answers the question asked, is factually plausible, and is not evasive or padded with irrelevant content.",
@@ -28,30 +14,26 @@ const RUBRIC_BY_TYPE: Record<TestType, string> = {
   rag: "The response is well-grounded and plausible. (No context file was supplied for this RAG test, so grade for reasonableness and hedging on uncertain claims.)",
 };
 
-interface JudgeOutput {
-  score: number;
-  reason: string;
-  pass: boolean;
-}
+interface JudgeOutput { score: number; reason: string; pass: boolean; }
 
 function extractJson(text: string): JudgeOutput | null {
-  // Judge models sometimes wrap JSON in ```json fences despite instructions.
   const cleaned = text.replace(/```json|```/g, "").trim();
   try {
     const parsed = JSON.parse(cleaned);
-    if (
-      typeof parsed.score === "number" &&
-      typeof parsed.reason === "string"
-    ) {
-      return {
-        score: parsed.score,
-        reason: parsed.reason,
-        pass: Boolean(parsed.pass),
-      };
+    if (typeof parsed.score === "number" && typeof parsed.reason === "string") {
+      return { score: parsed.score, reason: parsed.reason, pass: Boolean(parsed.pass) };
     }
     return null;
+  } catch { return null; }
+}
+
+async function callJudge(prompt: string): Promise<string> {
+  try {
+    const res = await generateText({ model: groq(JUDGE_MODEL_ID), prompt });
+    return res.text;
   } catch {
-    return null;
+    const res = await generateText({ model: google("gemini-2.0-flash"), prompt });
+    return res.text;
   }
 }
 
@@ -61,15 +43,13 @@ export async function evaluateResponse(
   modelOutput: string,
   context?: string
 ): Promise<{ qualityScore: number; reason: string }> {
-  // RAG with a real context file: grade groundedness against the actual
-  // retrieved context instead of general plausibility.
   const isGroundedRag = testType === "rag" && !!context;
   const rubric = isGroundedRag
     ? "The response must be firmly grounded in the provided context. It must NOT invent, extrapolate, or assert facts missing from the context; it should hedge or say it doesn't know when the context lacks the answer; and it should use the context's information accurately."
     : RUBRIC_BY_TYPE[testType];
 
   const contextBlock = isGroundedRag
-    ? `Retrieved context the assistant was given:\n\"\"\"\n${context}\n\"\"\"\n\n`
+    ? `Retrieved context the assistant was given:\n"""\n${context}\n"""\n\n`
     : "";
 
   const judgePrompt = `You are grading an AI assistant's response.
@@ -91,37 +71,63 @@ Respond with ONLY a JSON object, no other text, in this exact shape:
 {"score": <number 0-10>, "reason": "<one sentence explaining the score>", "pass": <true if score >= 6, else false>}`;
 
   try {
-  let resultText = "";
-  try {
-    const res = await generateText({
-      model: groq("llama-3.3-70b-versatile"),
-      prompt: judgePrompt,
-    });
-    resultText = res.text;
-  } catch {
-    const res = await generateText({
-      model: google("gemini-2.0-flash"),
-      prompt: judgePrompt,
-    });
-    resultText = res.text;
-  }
-  
-
+    const resultText = await callJudge(judgePrompt);
     const parsed = extractJson(resultText);
     if (parsed) {
       return { qualityScore: Math.max(0, Math.min(10, parsed.score)), reason: parsed.reason };
     }
-    // Judge didn't return valid JSON — don't fail the whole test, just
-    // fall back to a neutral score with a visible reason.
-    return {
-      qualityScore: 5,
-      reason: "Evaluator response could not be parsed; default score applied.",
-    };
+    return { qualityScore: 5, reason: "Evaluator response could not be parsed; default score applied." };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return {
-      qualityScore: 0,
-      reason: `Evaluation failed: ${message}`,
-    };
+    return { qualityScore: 0, reason: `Evaluation failed: ${message}` };
+  }
+}
+
+interface FactualityJudgeOutput { category: FactualityCategory; reason: string; }
+
+function extractFactualityJson(text: string): FactualityJudgeOutput | null {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    const category = String(parsed.category).toUpperCase().trim();
+    if (["A", "B", "C", "D", "E"].includes(category) && typeof parsed.reason === "string") {
+      return { category: category as FactualityCategory, reason: parsed.reason };
+    }
+    return null;
+  } catch { return null; }
+}
+
+export async function evaluateFactuality(
+  question: string,
+  reference: string,
+  modelOutput: string
+): Promise<{ category: FactualityCategory; pass: boolean; reason: string }> {
+  const judgePrompt = `You are comparing an AI assistant's answer to a known-correct reference answer.
+
+Question: "${question}"
+Reference (known correct) answer: "${reference}"
+Assistant's answer: "${modelOutput}"
+
+Classify the relationship between the assistant's answer and the reference answer. Choose exactly one:
+(A) Assistant's answer is a subset of the reference — less detail, but consistent, no contradictions
+(B) Assistant's answer is a superset of the reference — more detail, but consistent, no contradictions
+(C) Assistant's answer and the reference are essentially equivalent
+(D) Assistant's answer and the reference disagree / contradict each other
+(E) Assistant's answer differs in some way, but the difference doesn't affect factual correctness (e.g. rounding, phrasing)
+
+Respond with ONLY a JSON object, no other text:
+{"category": "A"|"B"|"C"|"D"|"E", "reason": "<one sentence explaining your choice>"}`;
+
+  try {
+    const resultText = await callJudge(judgePrompt);
+    const parsed = extractFactualityJson(resultText);
+    if (parsed) {
+      const pass = parsed.category !== "D";
+      return { category: parsed.category, pass, reason: parsed.reason };
+    }
+    return { category: "E", pass: false, reason: "Judge response could not be parsed; treated as fail for safety." };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { category: "D", pass: false, reason: `Evaluation failed: ${message}` };
   }
 }
