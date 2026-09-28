@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AVAILABLE_MODELS, TEST_TYPE_OPTIONS } from "@/lib/availableModels";
 import { parseContextFile, submitTest } from "@/lib/api";
-import { TestType } from "@/lib/types";
+import { TestType, ModelOption } from "@/lib/types";
 
 export default function TestForm() {
   const router = useRouter();
@@ -95,6 +95,41 @@ export default function TestForm() {
   function toggleModel(id: string) {
     setSelectedModels((prev) =>
       prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
+    );
+  }
+
+  // Task 6: split the picker into the working free-tier models (primary) and
+  // the disabled paid models (visibly secondary under a "coming soon" header)
+  // instead of interleaving them as if they were equally available.
+  const freeModels = AVAILABLE_MODELS.filter((m) => m.enabled);
+  const comingSoonModels = AVAILABLE_MODELS.filter((m) => !m.enabled);
+
+  function modelRow(model: ModelOption) {
+    return (
+      <label
+        key={model.id}
+        className={`flex items-center justify-between p-2.5 rounded border transition-colors group ${
+          model.enabled
+            ? "border-outline-variant bg-surface-container-lowest hover:border-primary/50 cursor-pointer has-[:checked]:border-tertiary-fixed-dim has-[:checked]:bg-surface-container-low"
+            : "border-outline-variant/50 bg-surface-container-lowest/50 cursor-not-allowed opacity-50"
+        }`}
+      >
+        <div className="flex items-center gap-sm">
+          <input
+            type="checkbox"
+            disabled={!model.enabled}
+            checked={selectedModels.includes(model.id)}
+            onChange={() => toggleModel(model.id)}
+            className="w-4 h-4 rounded-sm bg-surface-container-lowest border-outline-variant text-tertiary-fixed-dim focus:ring-tertiary-fixed-dim focus:ring-offset-background"
+          />
+          <span className="font-mono-label text-mono-label text-on-surface">
+            {model.id}
+          </span>
+        </div>
+        <span className="px-1.5 py-0.5 rounded bg-surface-container border border-outline-variant font-mono-label text-[10px] text-on-surface-variant">
+          {model.enabled ? model.provider : "Coming soon"}
+        </span>
+      </label>
     );
   }
 
@@ -276,32 +311,18 @@ export default function TestForm() {
               </label>
             </div>
             <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
-              {AVAILABLE_MODELS.map((model) => (
-                <label
-                  key={model.id}
-                  className={`flex items-center justify-between p-2.5 rounded border transition-colors group ${
-                    model.enabled
-                      ? "border-outline-variant bg-surface-container-lowest hover:border-primary/50 cursor-pointer has-[:checked]:border-tertiary-fixed-dim has-[:checked]:bg-surface-container-low"
-                      : "border-outline-variant/50 bg-surface-container-lowest/50 cursor-not-allowed opacity-50"
-                  }`}
-                >
-                  <div className="flex items-center gap-sm">
-                    <input
-                      type="checkbox"
-                      disabled={!model.enabled}
-                      checked={selectedModels.includes(model.id)}
-                      onChange={() => toggleModel(model.id)}
-                      className="w-4 h-4 rounded-sm bg-surface-container-lowest border-outline-variant text-tertiary-fixed-dim focus:ring-tertiary-fixed-dim focus:ring-offset-background"
-                    />
-                    <span className="font-mono-label text-mono-label text-on-surface">
-                      {model.id}
+              {freeModels.map(modelRow)}
+              {comingSoonModels.length > 0 && (
+                <div className="mt-2">
+                  <div className="px-2 py-1.5 mb-1 flex items-center gap-1 font-mono-label text-[10px] text-on-surface-variant bg-surface-container-low/60 border border-outline-variant/50 rounded">
+                    <span className="material-symbols-outlined text-[12px]">
+                      lock
                     </span>
+                    Coming soon · requires paid API
                   </div>
-                  <span className="px-1.5 py-0.5 rounded bg-surface-container border border-outline-variant font-mono-label text-[10px] text-on-surface-variant">
-                    {model.enabled ? model.provider : "Coming soon"}
-                  </span>
-                </label>
-              ))}
+                  {comingSoonModels.map(modelRow)}
+                </div>
+              )}
             </div>
           </div>
         </div>

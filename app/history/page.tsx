@@ -1,13 +1,12 @@
 import { listTests, getStats } from "@/lib/server/db";
+import { currentUser, currentScope } from "@/lib/auth";
 import HistoryTable from "@/components/HistoryTable";
 
 export default async function HistoryPage() {
-  // Server Components run on the server — calling the data layer
-  // directly (instead of fetch("/api/...")) avoids the "relative URL
-  // has no origin" issue that server-side fetch has, and skips an
-  // unnecessary network round-trip to our own API.
-  const records = listTests();
-  const stats = getStats();
+  const scope = await currentScope();
+  const user = await currentUser();
+  const records = listTests(scope);
+  const stats = getStats(scope);
 
   return (
     <>
@@ -16,8 +15,11 @@ export default async function HistoryPage() {
           <h2 className="font-headline-md text-headline-md text-on-surface">
             Test History
           </h2>
-          <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+          <p className="font-body-sm text-body-sm text-on-surface-variant mt-1 flex items-center gap-2">
             Review past evaluation runs and performance metrics.
+            <span className="px-2 py-0.5 rounded-full bg-surface-container border border-outline-variant font-mono-label text-[10px] text-on-surface-variant uppercase tracking-wider">
+              {user ? `as @${user.username}` : "local workspace"}
+            </span>
           </p>
         </div>
         <div className="flex gap-2">

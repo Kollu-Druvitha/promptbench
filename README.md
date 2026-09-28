@@ -16,6 +16,8 @@ uploaded context files, and local persistence. No paid services required.
    - Mistral: https://console.mistral.ai/api-keys (no card required)
    - Gemini: https://aistudio.google.com/apikey (optional — the free
      tier is rate-limited and can throw `limit: 0` errors)
+   - `PROMPTBENCH_SESSION_SECRET`: at least 32 random characters (dev-only
+     session encryption for accounts)
 3. Install and run:
 
 ```bash
@@ -34,10 +36,16 @@ app/
   results/[testId]/page.tsx   Test results (cards / table toggle)
   compare/page.tsx            Prompt V1 vs V2 comparison
   history/page.tsx            Past test runs + summary stats
+  recommend/page.tsx          ML leaderboard: best model per task × priority
+  login/page.tsx              Sign in page
+  register/page.tsx           Create account page
   api/tests/route.ts              POST: run a test, GET: list history
   api/tests/[testId]/route.ts     GET: fetch one test's results
   api/dashboard/stats/route.ts    GET: summary stats
   api/compare/route.ts            POST: run Prompt V1 vs V2
+  api/recommend/route.ts          GET: trained leaderboard per test type
+  api/prefs/route.ts              GET/PUT user recommendation weights
+  api/auth/login|register|logout|me  session auth
   api/parse/route.ts              POST: extract text from uploaded .pdf / .docx / text
 components/
   SideNav.tsx                Shared navigation
@@ -58,6 +66,10 @@ lib/
   server/models.ts             Routes a model id to the right provider (Groq/Mistral/Gemini)
   server/evaluator.ts          LLM-as-judge scoring logic
   server/rag.ts                RAG chunking + TF-IDF retrieval
+  server/recommender.ts         Lightweight supervised recommender (fit + predict)
+  server/users.ts               User registry + per-user shards/weights
+  server/db.ts                  Scope-aware JSON storage (user or "local")
+  auth.ts                      iron-session helpers (currentScope / currentUser)
 ```
 
 ## Why a JSON file instead of SQLite/Postgres?
@@ -80,11 +92,11 @@ routes calling them won't need to change.
 Each model's response is scored by a second LLM call (the "judge"), using
 a rubric tailored to the test type (coding correctness, summarization
 completeness, etc.) — modeled on promptfoo's `llm-rubric` grading pattern.
-The judge is **Groq's Llama 3.3 70B** (free and reliable) with Gemini as a
-fallback. The judge is never a model being evaluated. This is a genuine
-quality grader, but it is **not** a strict factuality/hallucination
-checker for tests without ground truth — batch evaluation against a
-labeled dataset is on the roadmap.
+The judge is **Groq's `openai/gpt-oss-20b`** (fast, free, reliable) with
+Gemini 3.6 Flash as a fallback. The judge is never a model being evaluated.
+This is a genuine quality grader, but it is **not** a strict
+factuality/hallucination checker for tests without ground truth — batch
+evaluation against a labeled dataset is on the roadmap.
 
 ## RAG
 
@@ -120,16 +132,63 @@ exactly. See that file for the full token reference.
 Four models are wired in, all chosen because they have genuinely free API
 tiers (no credit card, no billing setup):
 
-- **Llama 3.3 70B** (Groq) — reliable
-- **Llama 3.1 8B** (Groq) — reliable
+> **Heads-up (Aug 2026):** Groq no longer hosts Llama *chat* models and
+> older Gemini Flash models (2.0 / 2.5) are shut down. The app keeps its
+> stable internal ids so stored history keeps working, but those rows now
+> hit **currently-live** models. See `lib/server/models.ts` for the mapping.
+
+- **GPT-OSS 120B** (Groq, id `llama-3.3-70b`) — flagship; best-quality
+  candidate; 500 tok/s; $0.60 / 1M out
+- **GPT-OSS 20B** (Groq, id `llama-3.1-8b`) — fast/cheap workhorse;
+  1000 tok/s; $0.30 / 1M out
 - **Mistral Small** (Mistral) — reliable
-- **Gemini 2.0 Flash** (Google) — enabled but best-effort: the free tier
-  frequently throws `limit: 0` quota errors (known provider-side issue)
+- **Gemini 3.6 Flash** (Google, id `gemini-2.0-flash`) — enabled but
+  best-effort: the free tier frequently throws `limit: 0`/access errors
+  (known provider-side issue)
 
 `gpt-4-turbo` (OpenAI) and `claude-3-opus` (Anthropic) are visible in the
 UI but disabled ("Coming soon") — these require paid API credits. To
 enable one later: add its provider package, add a case in
 `lib/server/models.ts`, flip `enabled: true` in `lib/availableModels.ts`.
+
+## Model Recommendation (lightweight ML)
+
+`/recommend` turns every stored run into a **trained leaderboard**: given a
+task type (RAG / coding / summarization / QA) and a priority (quality /
+speed / value), it predicts which model to use next.
+
+- **Training data** is every stored `TestRecord` — each `(testType, modelId)`
+  is a labeled sample whose labels are the observed quality score, latency,
+  and cost. So the model genuinely trains on responses the app generated.
+- **Instance-based / memory-based learning**: observations are kept and scored
+  at query time (k-NN / Thompson-sampling family), which is the right call
+  when the dataset fits in memory and re-fit cost is ~0. No framework, no
+  native deps.
+- **Bayesian shrinkage**: each estimate is shrunk toward the group prior with
+  a pseudo-count, so a lucky 1-run model can't outrank a well-tested one.
+- The winner is the **highest shrunk utility** for that priority; confidence
+  grows with sample size.
+
+This is a simplified **model router** — the same category as RouteLLM,
+Martian, and LiteLLM's routing. `lib/server/recommender.ts` is pure and
+unit-testable; the `/api/recommend` route and `LeaderboardView` are thin
+wrappers around it.
+
+## Accounts & personalization
+
+- **Auth:** `iron-session` (stateless encrypted cookie — no session DB) +
+  `bcryptjs` (pure-JS hashing, no native compile). Register / login /
+  logout at `/login` and `/register`.
+- **Per-user data:** signed-in users get a private shard
+  (`data/users/<userId>/db.json`); anonymous visitors use `data/db.json`.
+  `lib/server/db.ts` is scope-aware, so history/results/stats/recommend all
+  respect the current user automatically.
+- **Personalization:** each user has preference weights
+  (`data/users/<userId>/prefs.json`) — an audience "this user cares about
+  speed/quality/value" profile. Bump the weights on the `/recommend` page and
+  the recommender's utilities are weighted accordingly (`personalized: true`).
+  Run the same prompt logged-out vs signed-in and see different winners — that
+  is the per-user model routing story.
 
 ## What's deferred (not yet in this build)
 

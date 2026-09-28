@@ -1,13 +1,31 @@
 import { TestResult } from "@/lib/types";
+import { valueScoreOf, isFreeTierValue, FREE_TIER_VALUE_SCORE } from "@/lib/badges";
 
 export default function ComparisonTable({ results }: { results: TestResult[] }) {
   const isError = (r: TestResult) => r.responseText.startsWith("⚠️ Model Call Failed");
+
+  const renderValue = (r: TestResult) => {
+    if (isError(r)) return "N/A";
+    const vs = valueScoreOf(r);
+    if (vs >= FREE_TIER_VALUE_SCORE || isFreeTierValue(r)) return "Free";
+    return vs.toFixed(1);
+  };
 
   const rows: { label: string; render: (r: TestResult) => string; highlight: (r: TestResult, all: TestResult[]) => boolean }[] = [
     {
       label: "Quality Score",
       render: (r) => (isError(r) ? "Error" : r.qualityScore.toFixed(1)),
       highlight: (r) => Boolean(r.isBestQuality) && !isError(r),
+    },
+    {
+      label: "Value (Q/$)",
+      render: renderValue,
+      highlight: (r) => Boolean(r.isBestValue) && !isError(r),
+    },
+    {
+      label: "Judge's Reasoning",
+      render: (r) => (isError(r) ? "—" : r.reason?.trim() ? r.reason : "—"),
+      highlight: () => false,
     },
     {
       label: "Tokens Used",

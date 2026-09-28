@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { callModel, isModelError, MODEL_DISPLAY } from "@/lib/server/models";
 import { evaluateResponse } from "@/lib/server/evaluator";
 import { buildRetriever, buildRagPrompt } from "@/lib/server/rag";
-import { saveTest } from "@/lib/server/db";
+import { saveTest, listTests } from "@/lib/server/db";
 import { withBadges } from "@/lib/badges";
+import { currentScope } from "@/lib/auth";
 import { TestRecord, TestResult, TestType, RetrievalMode } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
@@ -97,6 +98,7 @@ export async function POST(req: NextRequest) {
         provider: display.provider,
         responseText: `⚠️ Model Call Failed: ${errMessage}\n\nNote: If using Google Gemini, make sure your .env.local file contains a valid GOOGLE_GENERATIVE_AI_API_KEY from https://aistudio.google.com/apikey`,
         qualityScore: 0,
+        reason: "No score — the model call failed.",
         tokens: 0,
         latencyMs: 0,
         costUsd: 0,
@@ -117,24 +119,26 @@ export async function POST(req: NextRequest) {
   // Evaluate each successful response (also in parallel).
   const evaluated = await Promise.all(
     results.map(async (r) => {
-      const { qualityScore } = await evaluateResponse(
+      const { qualityScore, reason } = await evaluateResponse(
         testType,
         prompt,
         r.responseText,
         ragInfo?.retrievedContext
       );
-      return { ...r, qualityScore };
+      return { ...r, qualityScore, reason };
     })
   );
 
   const withScores = withBadges(evaluated);
 
   const testId = `eval-${Date.now().toString(36)}`;
+  const scope = await currentScope();
   const record: TestRecord = {
     testId,
     date: new Date().toISOString(),
     prompt,
     testType,
+    ownerId: scope !== "local" ? scope : undefined,
     contextFileName: ragInfo ? contextFileName : undefined,
     retrievedContext: ragInfo?.retrievedContext,
     retrievalMode: ragInfo?.mode,
@@ -145,7 +149,7 @@ export async function POST(req: NextRequest) {
     totalCost: withScores.reduce((sum, r) => sum + r.costUsd, 0),
   };
 
-  saveTest(record);
+  saveTest(record, scope);
 
   return NextResponse.json({
     testId,
@@ -156,6 +160,6 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  const { listTests } = await import("@/lib/server/db");
-  return NextResponse.json(listTests());
+  const scope = await currentScope();
+  return NextResponse.json(listTests(scope));
 }

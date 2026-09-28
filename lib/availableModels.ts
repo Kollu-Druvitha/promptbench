@@ -7,23 +7,26 @@ import { ModelOption } from "./types";
 //   2. Add the provider call in the backend's model-router
 // That's it — no component changes needed.
 export const AVAILABLE_MODELS: ModelOption[] = [
-  // First 2 models: both have genuinely free API tiers (no credit card,
-  // no billing setup) — good for building/testing without spending money.
+  // First models have genuinely free API tiers (no credit card, no billing
+  // setup) — good for building/testing without spending money.
   {
     id: "gemini-2.0-flash",
-    name: "Gemini 2.0 Flash",
+    name: "Gemini 3.6 Flash",
     provider: "Google",
     enabled: true,
   },
   {
     id: "llama-3.3-70b",
-    name: "Llama 3.3 70B",
+    // Groq dropped Llama chat models; the id is kept for history/dots but
+    // this row now calls openai/gpt-oss-120b — the flagship, best-quality
+    // model of the set. Name reflects that so the UI isn't dishonest.
+    name: "GPT-OSS 120B",
     provider: "Groq",
     enabled: true,
   },
   {
     id: "llama-3.1-8b",
-    name: "Llama 3.1 8B",
+    name: "GPT-OSS 20B",
     provider: "Groq",
     enabled: true,
   },

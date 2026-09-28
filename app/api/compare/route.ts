@@ -75,34 +75,52 @@ export async function POST(req: NextRequest) {
   const results: PromptComparisonResult[] = [];
   const errors: { modelId: string; version: "v1" | "v2"; error: string }[] = [];
 
-  for (const modelId of modelIds) {
-    const [callV1, callV2] = await Promise.all([
-      callModel(modelId, promptV1),
-      callModel(modelId, promptV2),
-    ]);
+  // Run every model (and its v1+v2 calls + judge evals) concurrently.
+  // The old loop was serial per model -> N x (2 model calls + 2 judge calls)
+  // of wall time; the parallel version is just ONE round-trip per stage.
+  const outcomes = await Promise.allSettled(
+    modelIds.map(async (modelId, idx) => {
+      const [callV1, callV2] = await Promise.all([
+        callModel(modelId, promptV1),
+        callModel(modelId, promptV2),
+      ]);
 
-    if (isModelError(callV1) || isModelError(callV2)) {
-      if (isModelError(callV1)) errors.push({ modelId, version: "v1", error: callV1.error });
-      if (isModelError(callV2)) errors.push({ modelId, version: "v2", error: callV2.error });
-      continue;
+      if (isModelError(callV1) || isModelError(callV2)) {
+        if (isModelError(callV1))
+          errors.push({ modelId, version: "v1", error: callV1.error });
+        if (isModelError(callV2))
+          errors.push({ modelId, version: "v2", error: callV2.error });
+        return null;
+      }
+
+      const [evalV1, evalV2] = await Promise.all([
+        evaluateResponse(testType, promptV1, callV1.responseText),
+        evaluateResponse(testType, promptV2, callV2.responseText),
+      ]);
+
+      const metrics = buildMetrics(
+        { score: evalV1.qualityScore, tokens: callV1.tokens, latencyMs: callV1.latencyMs },
+        { score: evalV2.qualityScore, tokens: callV2.tokens, latencyMs: callV2.latencyMs }
+      );
+
+      return {
+        modelId,
+        modelName: callV1.modelName,
+        evalId: `eval-${modelId}-${idx}-${Date.now().toString(36)}`,
+        metrics,
+      };
+    })
+  );
+
+  for (const outcome of outcomes) {
+    if (outcome.status === "fulfilled" && outcome.value) {
+      results.push(outcome.value);
+    } else if (outcome.status === "rejected") {
+      // Shouldn't normally happen (callModel catches its own errors), but
+      // keep it safe: surface a generic per-model error instead of failing.
+      const modelId = modelIds[outcomes.indexOf(outcome)] ?? "unknown";
+      errors.push({ modelId, version: "v1", error: String(outcome.reason) });
     }
-
-    const [evalV1, evalV2] = await Promise.all([
-      evaluateResponse(testType, promptV1, callV1.responseText),
-      evaluateResponse(testType, promptV2, callV2.responseText),
-    ]);
-
-    const metrics = buildMetrics(
-      { score: evalV1.qualityScore, tokens: callV1.tokens, latencyMs: callV1.latencyMs },
-      { score: evalV2.qualityScore, tokens: callV2.tokens, latencyMs: callV2.latencyMs }
-    );
-
-    results.push({
-      modelId,
-      modelName: callV1.modelName,
-      evalId: `eval-${modelId}-${Date.now().toString(36)}`,
-      metrics,
-    });
   }
 
   if (results.length === 0) {

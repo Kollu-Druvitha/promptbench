@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getTest } from "@/lib/server/db";
+import { currentScope } from "@/lib/auth";
 import ResultsView from "@/components/ResultsView";
 
 export default async function TestResultsPage({
@@ -8,7 +9,8 @@ export default async function TestResultsPage({
   params: Promise<{ testId: string }>;
 }) {
   const { testId } = await params;
-  const record = getTest(testId);
+  const scope = await currentScope();
+  const record = getTest(testId, scope);
   if (!record) notFound();
 
   return (

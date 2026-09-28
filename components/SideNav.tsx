@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import AuthMenu from "./AuthMenu";
 
 const NAV_ITEMS = [
   { href: "/", label: "New Test", icon: "add_box" },
+  { href: "/recommend", label: "Recommend", icon: "smart_toy" },
   { href: "/results", label: "Results", icon: "analytics" },
   { href: "/compare", label: "Compare", icon: "compare_arrows" },
   { href: "/history", label: "History", icon: "history" },
@@ -65,6 +67,7 @@ export default function SideNav() {
       </nav>
 
       <div className="mt-auto border-t border-outline-variant py-2">
+        <AuthMenu />
         <a
           className="text-on-surface-variant px-4 py-3 hover:bg-surface-container-high transition-all flex items-center gap-md font-mono-label text-mono-label cursor-pointer"
           href="#"

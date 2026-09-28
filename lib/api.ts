@@ -70,6 +70,24 @@ export async function getTestResults(testId: string): Promise<TestRecord | null>
   return parseJsonOrThrow(res);
 }
 
+/**
+ * Record whether the current user agrees with one model's judge score on a
+ * past test. Feedback of null clears a previous vote. Returns the updated
+ * TestRecord.
+ */
+export async function setResultFeedback(
+  testId: string,
+  modelId: string,
+  feedback: "agree" | "disagree" | null
+): Promise<TestRecord> {
+  const res = await fetch(`/api/tests/${testId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ modelId, feedback }),
+  });
+  return parseJsonOrThrow(res);
+}
+
 export async function getTestHistory(): Promise<TestRecord[]> {
   const res = await fetch("/api/tests");
   return parseJsonOrThrow(res);
@@ -90,4 +108,58 @@ export async function submitPromptComparison(
   });
   const data = await parseJsonOrThrow(res);
   return data.results;
+}
+
+export interface AuthResult {
+  user: { id: string; username: string } | null;
+}
+
+export async function registerUser(
+  username: string,
+  password: string
+): Promise<{ user: { id: string; username: string } }> {
+  const res = await fetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  return parseJsonOrThrow(res);
+}
+
+export async function loginUser(
+  username: string,
+  password: string
+): Promise<{ user: { id: string; username: string } }> {
+  const res = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  return parseJsonOrThrow(res);
+}
+
+export async function logoutUser(): Promise<void> {
+  await fetch("/api/auth/logout", { method: "POST" });
+}
+
+export async function getMe(): Promise<AuthResult> {
+  const res = await fetch("/api/auth/me");
+  return parseJsonOrThrow(res);
+}
+
+export interface PreferenceWeights {
+  quality: number;
+  speed: number;
+  value: number;
+}
+
+export async function updatePrefs(
+  prefs: PreferenceWeights
+): Promise<{ prefs: PreferenceWeights }> {
+  const res = await fetch("/api/prefs", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(prefs),
+  });
+  return parseJsonOrThrow(res);
 }

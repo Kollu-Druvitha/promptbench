@@ -29,10 +29,19 @@ function extractJson(text: string): JudgeOutput | null {
 
 async function callJudge(prompt: string): Promise<string> {
   try {
-    const res = await generateText({ model: groq(JUDGE_MODEL_ID), prompt });
+    const res = await generateText({
+      model: groq(JUDGE_MODEL_ID),
+      prompt,
+      maxOutputTokens: 512,
+    });
     return res.text;
   } catch {
-    const res = await generateText({ model: google("gemini-2.0-flash"), prompt });
+    // Fallback: older Gemini Flash models are shut down — use current 3.6.
+    const res = await generateText({
+      model: google("gemini-3.6-flash"),
+      prompt,
+      maxOutputTokens: 512,
+    });
     return res.text;
   }
 }
@@ -56,7 +65,9 @@ export async function evaluateResponse(
 
 ${contextBlock}Grading criteria: ${rubric}
 
-Original prompt given to the assistant:
+${isGroundedRag
+    ? "Because this is a grounded RAG test, your reason MUST state whether the response is fully supported by the retrieved context (and which passage it used) or what the response fabricated / asserted without support, e.g. \"Fully supported by retrieved passage 2\" or \"Fabricated a detail not present in the context.\"\n\n"
+    : ""}Original prompt given to the assistant:
 """
 ${originalPrompt}
 """
@@ -68,7 +79,7 @@ ${modelOutput}
 
 Score the response from 0 to 10 based on the grading criteria (10 = fully meets the criteria, 0 = completely fails it).
 Respond with ONLY a JSON object, no other text, in this exact shape:
-{"score": <number 0-10>, "reason": "<one sentence explaining the score>", "pass": <true if score >= 6, else false>}`;
+{"score": <number 0-10>, "reason": "<1-2 sentences explaining the score with concrete evidence from the response>", "pass": <true if score >= 6, else false>}`;
 
   try {
     const resultText = await callJudge(judgePrompt);
