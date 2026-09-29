@@ -93,6 +93,28 @@ export function getCachedTestRecord(testId: string): TestRecord | null {
   }
 }
 
+/** All runs cached in this browser session, newest first. */
+export function listCachedTestRecords(): TestRecord[] {
+  const out: TestRecord[] = [];
+  try {
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (!key || !key.startsWith(TEST_CACHE_PREFIX)) continue;
+      const raw = sessionStorage.getItem(key);
+      if (!raw) continue;
+      try {
+        const rec = JSON.parse(raw) as TestRecord;
+        if (rec && rec.testId) out.push(rec);
+      } catch {
+        // Skip unparseable entries — cache is best-effort.
+      }
+    }
+  } catch {
+    // Private mode / quota — no cache available.
+  }
+  return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
+
 export async function getTestResults(testId: string): Promise<TestRecord | null> {
   const res = await fetch(`/api/tests/${testId}`);
   if (res.status === 404) return null;
