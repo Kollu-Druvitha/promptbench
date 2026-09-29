@@ -1,6 +1,9 @@
 import { embed, embedMany } from "ai";
 import { mistral } from "@ai-sdk/mistral";
+import { normalizeApiKeyEnv } from "@/lib/server/models";
 import { RetrievalMode } from "@/lib/types";
+
+normalizeApiKeyEnv("MISTRAL_API_KEY");
 
 // -----------------------------------------------------------------------
 // RAG retrieval (server-side).

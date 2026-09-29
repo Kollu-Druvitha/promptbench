@@ -4,6 +4,28 @@ import { groq } from "@ai-sdk/groq";
 import { mistral } from "@ai-sdk/mistral";
 import { TestResult } from "@/lib/types";
 
+// Clean up API-key env vars: providers put `Bearer <key>` into an HTTP header
+// verbatim, and a stray newline/spaces from a sloppy paste (e.g. pasting a key
+// three times with Enter between copies) makes the header invalid — the request
+// dies before it is even sent. The first whitespace-delimited token is always
+// the real key, so we recover that. Returns the cleaned value.
+export function normalizeApiKeyEnv(name: string): string | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const token = raw.trim().split(/\s+/)[0];
+  if (!token) return undefined;
+  process.env[name] = token;
+  return token;
+}
+
+for (const key of [
+  "GROQ_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "MISTRAL_API_KEY",
+]) {
+  normalizeApiKeyEnv(key);
+}
+
 // -----------------------------------------------------------------------
 // Model router: given a model id, calls the right provider and returns
 // a normalized result. This is the ONE place that knows about provider
