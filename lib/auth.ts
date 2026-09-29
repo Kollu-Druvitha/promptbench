@@ -36,7 +36,7 @@ export async function getSession() {
 export async function currentUser(): Promise<User | null> {
   const session = await getSession();
   if (!session.userId) return null;
-  return getUserById(session.userId);
+  return await getUserById(session.userId);
 }
 
 /** Storage scope: the userId for logged-in users, "local" otherwise. */

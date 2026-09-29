@@ -10,7 +10,7 @@ export default async function TestResultsPage({
 }) {
   const { testId } = await params;
   const scope = await currentScope();
-  const record = getTest(testId, scope);
+  const record = await getTest(testId, scope);
   if (!record) notFound();
 
   return (

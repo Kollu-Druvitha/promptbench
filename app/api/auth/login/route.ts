@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   const username = String(body.username ?? "").trim().toLowerCase();
   const password = String(body.password ?? "");
 
-  const user = findUserByUsername(username);
+  const user = await findUserByUsername(username);
   if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
     return NextResponse.json(
       { error: "Invalid username or password" },

@@ -1,15 +1,14 @@
-import fs from "fs";
 import path from "path";
+import { kvGetJson, kvSetJson } from "@/lib/server/storage";
 
-// -------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // User registry + per-user data stores (lightweight personalization).
 //
-// Auth lives in data/users.json (id, username, bcrypt hash). Everything
-// else is sharded per user: data/users/<id>/db.json holds that user's test
-// history and prefs.json holds their learned preference weights. This keeps
-// the zero-native-deps, JSON-file philosophy of the project while enabling
-// true "this model is best FOR YOU" recommendations.
-// -------------------------------------------------------------------------
+// Auth lives in the "users" document (id, username, bcrypt hash). Everything
+// else is sharded per user: their test history on "db:<userId>" and their
+// preference weights on "prefs:<userId>". The backend (local JSON files in
+// dev, Upstash Redis on serverless) is decided in lib/server/storage.ts.
+// ---------------------------------------------------------------------------
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
@@ -33,31 +32,23 @@ interface UserDb {
 
 export const DEFAULT_PREFS: UserPreferences = { quality: 1, speed: 1, value: 1 };
 
-function ensureUsers(): UserDb {
-  if (!fs.existsSync(USERS_FILE)) {
-    const initial: UserDb = { users: [] };
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(USERS_FILE, JSON.stringify(initial, null, 2));
-    return initial;
-  }
-  const raw = fs.readFileSync(USERS_FILE, "utf-8");
-  try {
-    return JSON.parse(raw) as UserDb;
-  } catch {
-    return { users: [] };
-  }
+async function ensureUsers(): Promise<UserDb> {
+  return kvGetJson<UserDb>("users", USERS_FILE, () => ({ users: [] }));
 }
 
-function writeUsers(db: UserDb) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(db, null, 2));
+async function writeUsers(db: UserDb): Promise<void> {
+  await kvSetJson("users", USERS_FILE, db);
 }
 
 export function userDataDir(userId: string): string {
   return path.join(DATA_DIR, "users", userId);
 }
 
-export function createUser(username: string, passwordHash: string): User {
-  const db = ensureUsers();
+export async function createUser(
+  username: string,
+  passwordHash: string
+): Promise<User> {
+  const db = await ensureUsers();
   const name = username.trim().toLowerCase();
   if (db.users.some((u) => u.username === name)) {
     throw new Error("Username already taken");
@@ -69,20 +60,21 @@ export function createUser(username: string, passwordHash: string): User {
     createdAt: new Date().toISOString(),
   };
   db.users.push(user);
-  writeUsers(db);
-  fs.mkdirSync(userDataDir(user.id), { recursive: true });
-  savePreferences(user.id, DEFAULT_PREFS);
+  await writeUsers(db);
+  await savePreferences(user.id, DEFAULT_PREFS);
   return user;
 }
 
-export function findUserByUsername(username: string): User | null {
-  const db = ensureUsers();
+export async function findUserByUsername(
+  username: string
+): Promise<User | null> {
+  const db = await ensureUsers();
   const name = username.trim().toLowerCase();
   return db.users.find((u) => u.username === name) ?? null;
 }
 
-export function getUserById(id: string): User | null {
-  const db = ensureUsers();
+export async function getUserById(id: string): Promise<User | null> {
+  const db = await ensureUsers();
   return db.users.find((u) => u.id === id) ?? null;
 }
 
@@ -90,39 +82,33 @@ export function toPublicUser(user: User) {
   return { id: user.id, username: user.username, createdAt: user.createdAt };
 }
 
-// -------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Per-user preference profile (the "personalization" the recommender uses).
-// -------------------------------------------------------------------------
-export function getPreferences(userId: string): UserPreferences {
+// ---------------------------------------------------------------------------
+export async function getPreferences(
+  userId: string
+): Promise<UserPreferences> {
   const file = path.join(userDataDir(userId), "prefs.json");
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, "utf-8")) as Partial<UserPreferences>;
-    return {
-      quality:
-        typeof raw.quality === "number" && raw.quality > 0 ? raw.quality : 1,
-      speed: typeof raw.speed === "number" && raw.speed > 0 ? raw.speed : 1,
-      value: typeof raw.value === "number" && raw.value > 0 ? raw.value : 1,
-    };
-  } catch {
-    return DEFAULT_PREFS;
-  }
+  const raw = await kvGetJson<Partial<UserPreferences>>(`prefs:${userId}`, file, () => ({}));
+  return {
+    quality:
+      typeof raw.quality === "number" && raw.quality > 0 ? raw.quality : 1,
+    speed: typeof raw.speed === "number" && raw.speed > 0 ? raw.speed : 1,
+    value: typeof raw.value === "number" && raw.value > 0 ? raw.value : 1,
+  };
 }
 
-export function savePreferences(
+export async function savePreferences(
   userId: string,
   prefs: Partial<UserPreferences>
-): UserPreferences {
-  const current = getPreferences(userId);
+): Promise<UserPreferences> {
+  const current = await getPreferences(userId);
   const clamp = (n: number) => Math.max(0.5, Math.min(3, Number(n) || 1));
   const saved: UserPreferences = {
     quality: clamp(prefs.quality ?? current.quality),
     speed: clamp(prefs.speed ?? current.speed),
     value: clamp(prefs.value ?? current.value),
   };
-  fs.mkdirSync(userDataDir(userId), { recursive: true });
-  fs.writeFileSync(
-    path.join(userDataDir(userId), "prefs.json"),
-    JSON.stringify(saved, null, 2)
-  );
+  await kvSetJson(`prefs:${userId}`, path.join(userDataDir(userId), "prefs.json"), saved);
   return saved;
 }

@@ -8,7 +8,7 @@ export async function GET(
 ) {
   const { testId } = await params;
   const scope = await currentScope();
-  const record = getTest(testId, scope);
+  const record = await getTest(testId, scope);
   if (!record) {
     return NextResponse.json({ error: "Test not found" }, { status: 404 });
   }
@@ -45,7 +45,7 @@ export async function PATCH(
   }
 
   const scope = await currentScope();
-  const updated = updateResultFeedback(testId, scope, modelId, feedback);
+  const updated = await updateResultFeedback(testId, scope, modelId, feedback);
   if (!updated) {
     return NextResponse.json(
       { error: "Test or model result not found" },

@@ -4,5 +4,5 @@ import { currentScope } from "@/lib/auth";
 
 export async function GET() {
   const scope = await currentScope();
-  return NextResponse.json(getStats(scope));
+  return NextResponse.json(await getStats(scope));
 }

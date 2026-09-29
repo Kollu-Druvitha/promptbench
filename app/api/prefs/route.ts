@@ -7,7 +7,7 @@ import { getPreferences, savePreferences } from "@/lib/server/users";
 export async function GET() {
   const user = await currentUser();
   if (!user) return NextResponse.json({ user: null, prefs: null });
-  return NextResponse.json({ user: { id: user.id, username: user.username }, prefs: getPreferences(user.id) });
+  return NextResponse.json({ user: { id: user.id, username: user.username }, prefs: await getPreferences(user.id) });
 }
 
 // PUT /api/prefs — persist a user's personalization weights.
@@ -26,8 +26,8 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   // Merge so a partial update can't clobber other axes.
-  const current = getPreferences(user.id);
-  const prefs = savePreferences(user.id, {
+  const current = await getPreferences(user.id);
+  const prefs = await savePreferences(user.id, {
     quality: body.quality ?? current.quality,
     speed: body.speed ?? current.speed,
     value: body.value ?? current.value,

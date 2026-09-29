@@ -7,6 +7,10 @@ import {
   TestType,
 } from "@/lib/types";
 
+// 2 model calls + 2 judge calls per model, run in parallel — give serverless
+// hosts headroom (Vercel Hobby caps at 60s).
+export const maxDuration = 60;
+
 function buildMetrics(
   v1: { score: number; tokens: number; latencyMs: number },
   v2: { score: number; tokens: number; latencyMs: number }

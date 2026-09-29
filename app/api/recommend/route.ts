@@ -26,8 +26,8 @@ export async function GET(req: NextRequest) {
 
   const scope = await currentScope();
   const user = await currentUser();
-  const weights = user ? getPreferences(user.id) : DEFAULT_WEIGHTS;
-  const records = listTests(scope);
+  const weights = user ? await getPreferences(user.id) : DEFAULT_WEIGHTS;
+  const records = await listTests(scope);
 
   const payloads = PRIORITIES.map((priority) =>
     buildRecommendations(records, testType, priority, weights)

@@ -26,10 +26,10 @@ export default async function RecommendPage({
   const scope = await currentScope();
   const user = await currentUser();
   const weights: RecommendationWeights = user
-    ? getPreferences(user.id)
+    ? await getPreferences(user.id)
     : DEFAULT_WEIGHTS;
 
-  const records = listTests(scope);
+  const records = await listTests(scope);
   const payloads = PRIORITIES.map((priority) =>
     buildRecommendations(records, testType, priority, weights)
   );

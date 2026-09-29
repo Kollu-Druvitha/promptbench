@@ -5,8 +5,8 @@ import HistoryTable from "@/components/HistoryTable";
 export default async function HistoryPage() {
   const scope = await currentScope();
   const user = await currentUser();
-  const records = listTests(scope);
-  const stats = getStats(scope);
+  const records = await listTests(scope);
+  const stats = await getStats(scope);
 
   return (
     <>

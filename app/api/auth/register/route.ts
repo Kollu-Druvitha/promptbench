@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (findUserByUsername(username)) {
+  if (await findUserByUsername(username)) {
     return NextResponse.json(
       { error: "Username already taken" },
       { status: 409 }
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   }
 
   const passwordHash = bcrypt.hashSync(password, 10);
-  const user = createUser(username, passwordHash);
+  const user = await createUser(username, passwordHash);
 
   const session = await getSession();
   session.userId = user.id;

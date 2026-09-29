@@ -18,6 +18,8 @@ uploaded context files, and local persistence. No paid services required.
      tier is rate-limited and can throw `limit: 0` errors)
    - `PROMPTBENCH_SESSION_SECRET`: at least 32 random characters (dev-only
      session encryption for accounts)
+   - `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`: only needed if
+     you deploy to serverless (Vercel/Netlify) — see "Deploying" below
 3. Install and run:
 
 ```bash
@@ -62,7 +64,8 @@ lib/
   mockData.ts                  Mock data (used only if you want to preview UI without keys)
   badges.ts                    Shared "best quality/fastest/value" computation
   api.ts                      Client-side fetch wrappers used by TestForm/CompareView
-  server/db.ts                  JSON-file storage
+  server/storage.ts              Storage adapter: Upstash Redis OR local JSON files
+  server/db.ts                  Scope-aware test storage (user or "local")
   server/models.ts             Routes a model id to the right provider (Groq/Mistral/Gemini)
   server/evaluator.ts          LLM-as-judge scoring logic
   server/rag.ts                RAG chunking + TF-IDF retrieval
@@ -78,14 +81,39 @@ SQLite drivers (`better-sqlite3`) need native compilation, which is a
 common source of setup pain on Windows specifically. Postgres needs a
 hosted DB service — one more account, one more thing to configure, for a
 solo student project that doesn't need concurrent multi-user writes yet.
-A JSON file (`data/db.json`, auto-created on first run) needs zero setup
-and works identically on any OS.
+A JSON file (auto-created on first run) needs zero setup and works
+identically on any OS.
 
 Trade-off: this won't scale past local single-user use and doesn't
-handle concurrent writes safely. If you ever deploy this for real users,
-swap `lib/server/db.ts` for a real database — the function signatures
-(`saveTest`, `getTest`, `listTests`, `getStats`) are written so the API
-routes calling them won't need to change.
+handle concurrent writes safely. To keep local dev simple *and* make
+serverless deploys work, all persistence now goes through a small
+adapter (`lib/server/storage.ts`):
+
+- **Local / persistent Node hosts (Railway, Render, Fly, VPS):** leave
+  `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` empty — data is
+  stored in `data/` as JSON files, exactly as before.
+- **Serverless (Vercel, Netlify):** their filesystem is read-only, so
+  set both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (a
+  free Upstash Redis database at https://console.upstash.com). Every
+  document (test history per scope, the user registry, per-user prefs)
+  is stored as a JSON value in Redis instead.
+
+The `saveTest`, `getTest`, `listTests`, `getStats`, and user functions
+keep their signatures — the API routes calling them don't care which
+backend is active.
+
+## Deploying
+
+1. Push to GitHub. If Vercel is connected to the repo it auto-deploys
+   on every push to `main`.
+2. In Vercel → Project → Settings → Environment Variables, set:
+   - `GOOGLE_GENERATIVE_AI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`
+   - `PROMPTBENCH_SESSION_SECRET` (generate a fresh one ≥32 chars)
+   - `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (required —
+     Vercel's filesystem is read-only, so without these registrations,
+     history, and every test save will 500)
+3. Redeploy. The model + judge routes declare `maxDuration = 60`, so
+   multi-model runs fit within Vercel Hobby's function time limit.
 
 ## How the evaluator works
 

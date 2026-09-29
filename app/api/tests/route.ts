@@ -7,6 +7,10 @@ import { withBadges } from "@/lib/badges";
 import { currentScope } from "@/lib/auth";
 import { TestRecord, TestResult, TestType, RetrievalMode } from "@/lib/types";
 
+// Multi-model calls + judge evals run inside this route; give it headroom on
+// serverless hosts (Vercel Hobby caps at 60s).
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   let body: {
     prompt?: string;
@@ -149,7 +153,7 @@ export async function POST(req: NextRequest) {
     totalCost: withScores.reduce((sum, r) => sum + r.costUsd, 0),
   };
 
-  saveTest(record, scope);
+  await saveTest(record, scope);
 
   return NextResponse.json({
     testId,
@@ -161,5 +165,6 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   const scope = await currentScope();
-  return NextResponse.json(listTests(scope));
+  const records = await listTests(scope);
+  return NextResponse.json(records);
 }
