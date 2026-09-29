@@ -38,11 +38,45 @@ function getRedis(): Redis {
   return redisClient;
 }
 
+// Ephemeral in-memory cache used when the disk is read-only (e.g. a serverless
+// host deployed without the UPSTASH_* env vars). Keeps a single instance's
+// writes coherent across requests instead of crashing with EROFS. Data is NOT
+// durable across cold starts — the real persistence path is Redis.
+const memoryCache = new Map<string, string>(); // filePath -> JSON string
+
+function cacheGet<T>(filePath: string): T | undefined {
+  const mem = memoryCache.get(filePath);
+  if (mem === undefined) return undefined;
+  try {
+    return JSON.parse(mem) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeFileOrFallback(filePath: string, raw: string, label: string): void {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, raw);
+  } catch (err) {
+    // Read-only filesystem (serverless host without UPSTASH_* configured).
+    // Keep the value in memory so requests don't 500; it just won't persist.
+    console.error(
+      `[storage] ${label} failed to write "${filePath}" (read-only FS?). ` +
+        `Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for durable storage. ` +
+        `Using in-memory fallback: ${err instanceof Error ? err.message : String(err)}`
+    );
+    memoryCache.set(filePath, raw);
+  }
+}
+
 function readFileJson<T>(filePath: string, fallback: () => T): T {
+  const mem = cacheGet<T>(filePath);
+  if (mem !== undefined) return mem;
+
   if (!fs.existsSync(filePath)) {
     const initial = fallback();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(initial, null, 2));
+    writeFileOrFallback(filePath, JSON.stringify(initial, null, 2), "init");
     return initial;
   }
   const raw = fs.readFileSync(filePath, "utf-8");
@@ -51,7 +85,7 @@ function readFileJson<T>(filePath: string, fallback: () => T): T {
   } catch {
     // Corrupt or empty — reset rather than crash the app.
     const initial = fallback();
-    fs.writeFileSync(filePath, JSON.stringify(initial, null, 2));
+    writeFileOrFallback(filePath, JSON.stringify(initial, null, 2), "reset");
     return initial;
   }
 }
@@ -93,6 +127,5 @@ export async function kvSetJson<T>(
     await getRedis().set(redisKey, JSON.stringify(data));
     return;
   }
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  writeFileOrFallback(filePath, JSON.stringify(data, null, 2), "write");
 }
