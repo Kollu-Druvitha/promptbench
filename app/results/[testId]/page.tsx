@@ -1,4 +1,3 @@
-import { notFound } from "next/navigation";
 import { getTest } from "@/lib/server/db";
 import { currentScope } from "@/lib/auth";
 import ResultsView from "@/components/ResultsView";
@@ -10,8 +9,11 @@ export default async function TestResultsPage({
 }) {
   const { testId } = await params;
   const scope = await currentScope();
+
+  // Best-effort server lookup. When the record isn't there (e.g. an ephemeral
+  // serverless instance that lost the in-memory fallback), don't 404 — let the
+  // client recovery in ResultsView bring it back from the session cache.
   const record = await getTest(testId, scope);
-  if (!record) notFound();
 
   return (
     <>
@@ -24,7 +26,7 @@ export default async function TestResultsPage({
         </p>
       </header>
       <div className="p-gutter flex-1 max-w-container-max w-full mx-auto">
-        <ResultsView record={record} />
+        <ResultsView testId={testId} record={record} />
       </div>
     </>
   );

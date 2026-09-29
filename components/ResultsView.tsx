@@ -1,26 +1,110 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TestRecord } from "@/lib/types";
+import { getCachedTestRecord, getTestResults } from "@/lib/api";
 import { valueScoreOf, isFreeTierValue, FREE_TIER_VALUE_SCORE } from "@/lib/badges";
 import ModelCard from "./ModelCard";
 import ComparisonTable from "./ComparisonTable";
 
-export default function ResultsView({ record }: { record: TestRecord }) {
+/**
+ * Results viewer with client-side recovery.
+ *
+ * The server renderer does a best-effort lookup by testId; if the record isn't
+ * found there (e.g. a serverless instance whose in-memory fallback lost the
+ * run), this component recovers it from the session cache the submit flow
+ * populated — and finally from GET /api/tests/[testId]. Only when all three
+ * miss do we show a friendly "run not found" state instead of a hard 404.
+ */
+export default function ResultsView({
+  testId,
+  record: serverRecord,
+}: {
+  testId: string;
+  record: TestRecord | null;
+}) {
+  const [record, setRecord] = useState<TestRecord | null>(serverRecord);
+  const [status, setStatus] = useState<"ready" | "loading" | "error">(
+    serverRecord ? "ready" : "loading"
+  );
   const [view, setView] = useState<"grid" | "table">("grid");
+
+  useEffect(() => {
+    if (serverRecord) return;
+    let cancelled = false;
+    async function recover() {
+      const cached = getCachedTestRecord(testId);
+      if (cached) {
+        if (!cancelled) {
+          setRecord(cached);
+          setStatus("ready");
+        }
+        return;
+      }
+      const fetched = await getTestResults(testId);
+      if (cancelled) return;
+      if (fetched) {
+        setRecord(fetched);
+        setStatus("ready");
+      } else {
+        setStatus("error");
+      }
+    }
+    void recover();
+    return () => {
+      cancelled = true;
+    };
+  }, [testId, serverRecord]);
+
+  if (status === "loading" && !record) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <span className="material-symbols-outlined text-outline-variant text-[40px] mb-3">
+          hourglass_empty
+        </span>
+        <p className="font-mono-label text-mono-label text-on-surface-variant">
+          Loading results…
+        </p>
+      </div>
+    );
+  }
+
+  if (!record) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <span className="material-symbols-outlined text-outline-variant text-[40px] mb-3">
+          search_off
+        </span>
+        <p className="font-body-sm text-body-sm text-on-surface-variant mb-4">
+          This run isn&apos;t available — it may have been created on a session
+          that stored its data temporarily (no persistent database is configured
+          yet).
+        </p>
+        <a
+          href="/"
+          className="px-4 py-2 rounded border border-outline-variant text-on-surface hover:bg-surface-bright font-mono-label text-mono-label transition-colors"
+        >
+          Run a new test
+        </a>
+      </div>
+    );
+  }
 
   // The one-number answer to "which model is the best buy": the highest
   // quality-per-cost metric (free-tier results use the bounded sentinel).
   const scored = record.results.filter((r) => r.qualityScore > 0);
-  const bestValue = scored.length > 0
-    ? scored.reduce((a, b) => (valueScoreOf(b) > valueScoreOf(a) ? b : a))
-    : null;
+  const bestValue =
+    scored.length > 0
+      ? scored.reduce((a, b) => (valueScoreOf(b) > valueScoreOf(a) ? b : a))
+      : null;
   const bestValueScore = bestValue ? valueScoreOf(bestValue) : 0;
   const bestValueLabel =
     bestValue &&
     (isFreeTierValue(bestValue) || bestValueScore >= FREE_TIER_VALUE_SCORE)
       ? "Free"
-      : bestValue ? `${bestValueScore.toFixed(1)} Q/$` : "";
+      : bestValue
+        ? `${bestValueScore.toFixed(1)} Q/$`
+        : "";
 
   return (
     <>
@@ -64,9 +148,7 @@ export default function ResultsView({ record }: { record: TestRecord }) {
               </div>
               <p className="font-body-sm text-body-sm text-on-surface-variant">
                 {bestValue.modelName} offers the most quality per dollar this run
-                {bestValueLabel === "Free"
-                  ? " — free tier."
-                  : "."}
+                {bestValueLabel === "Free" ? " — free tier." : "."}
               </p>
             </div>
           </div>

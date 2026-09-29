@@ -157,8 +157,12 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     testId,
-    // Surface partial failures so the frontend/README-checker can see
-    // which model(s) didn't return, without failing the whole request.
+    // Return the full record so the client can render results immediately,
+    // even if the storage backend can't serve it back yet (serverless hosts
+    // with an ephemeral in-memory fallback).
+    record,
+    // Surface partial failures so the frontend can show which model(s) didn't
+    // return, without failing the whole request.
     partialErrors: errors.length > 0 ? errors : undefined,
   });
 }

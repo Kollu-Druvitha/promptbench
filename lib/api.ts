@@ -48,7 +48,9 @@ export async function parseContextFile(
   return parseJsonOrThrow(res);
 }
 
-export async function submitTest(input: SubmitTestInput): Promise<{ testId: string }> {
+export async function submitTest(
+  input: SubmitTestInput
+): Promise<{ testId: string; record: TestRecord }> {
   const res = await fetch("/api/tests", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -61,7 +63,34 @@ export async function submitTest(input: SubmitTestInput): Promise<{ testId: stri
     }),
   });
   const data = await parseJsonOrThrow(res);
-  return { testId: data.testId };
+  if (data.record) cacheTestRecord(data.record);
+  return { testId: data.testId, record: data.record };
+}
+
+// ── Client-side result cache ─────────────────────────────────────────────
+// The server keeps results in durable storage (Upstash Redis) OR an in-memory
+// fallback that can vanish on a serverless cold start. To guarantee the user
+// sees their results right after running a test, we also cache the record in
+// sessionStorage and let /results/[testId] recover from it if the server has
+// already forgotten the run. Same-tab navigation always wins; history/other
+// browsers still read from the server.
+const TEST_CACHE_PREFIX = "pb:test:";
+
+export function cacheTestRecord(record: TestRecord): void {
+  try {
+    sessionStorage.setItem(`${TEST_CACHE_PREFIX}${record.testId}`, JSON.stringify(record));
+  } catch {
+    // Private mode / quota — cache is a nice-to-have, not a requirement.
+  }
+}
+
+export function getCachedTestRecord(testId: string): TestRecord | null {
+  try {
+    const raw = sessionStorage.getItem(`${TEST_CACHE_PREFIX}${testId}`);
+    return raw ? (JSON.parse(raw) as TestRecord) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getTestResults(testId: string): Promise<TestRecord | null> {
