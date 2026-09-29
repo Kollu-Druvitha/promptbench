@@ -15,12 +15,28 @@ export interface SessionData {
 
 const COOKIE_NAME = "promptbench_session";
 
+// Ephemeral fallback secret (per warm instance) used when the host hasn't set
+// PROMPTBENCH_SESSION_SECRET. Sessions only survive while the instance is
+// warm, and a loud warning is logged — the real fix is setting the env var.
+let ephemeralSecret: string | null = null;
+function fallbackSecret(): string {
+  if (!ephemeralSecret) {
+    let s = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    while (s.length < 32) s += Math.random().toString(36).slice(2);
+    ephemeralSecret = s;
+    console.error(
+      "[auth] PROMPTBENCH_SESSION_SECRET is missing or shorter than 32 chars — " +
+        "using an ephemeral per-process secret, so logins won't survive cold starts. " +
+        "Set it in your host's environment variables."
+    );
+  }
+  return ephemeralSecret;
+}
+
 export function getSessionSecret(): string {
   const secret = process.env.PROMPTBENCH_SESSION_SECRET;
   if (!secret || secret.length < 32) {
-    throw new Error(
-      "PROMPTBENCH_SESSION_SECRET must be at least 32 characters, set in .env.local"
-    );
+    return fallbackSecret();
   }
   return secret;
 }
