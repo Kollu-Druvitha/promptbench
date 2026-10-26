@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import { google } from "@ai-sdk/google";
 import { groq } from "@ai-sdk/groq";
-import { mistral } from "@ai-sdk/mistral";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { TestResult } from "@/lib/types";
 
 // Clean up API-key env vars: providers put `Bearer <key>` into an HTTP header
@@ -22,6 +22,7 @@ for (const key of [
   "GROQ_API_KEY",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "MISTRAL_API_KEY",
+  "OPENROUTER_API_KEY",
 ]) {
   normalizeApiKeyEnv(key);
 }
@@ -49,10 +50,13 @@ const PRICING_PER_1M_TOKENS: Record<string, number> = {
   "gemini-2.5-flash": 0,
   "llama-3.3-70b": 0.6, // gpt-oss-120b @ $0.60 / 1M out
   "llama-3.1-8b": 0.3, // gpt-oss-20b @ $0.30 / 1M out
-  "mistral-small": 0,
   "gpt-4-turbo": 10,
   "claude-3-opus": 15,
 };
+
+const openrouter = createOpenRouter({
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
 
 function getModel(modelId: string) {
   switch (modelId) {
@@ -64,7 +68,9 @@ function getModel(modelId: string) {
     case "llama-3.1-8b":
       return groq("openai/gpt-oss-20b");
     case "mistral-small":
-      return mistral("mistral-small-latest");
+      return openrouter("mistralai/mistral-small-3.2-24b-instruct", {
+        usage: { include: true },
+      });
     default:
       throw new Error(
         `Model "${modelId}" is not wired up yet. Check lib/server/models.ts.`
@@ -77,7 +83,10 @@ export const MODEL_DISPLAY: Record<string, { name: string; provider: string }> =
   "gemini-2.5-flash": { name: "Gemini 3.6 Flash", provider: "Google" },
   "llama-3.3-70b": { name: "GPT-OSS 120B", provider: "Groq" },
   "llama-3.1-8b": { name: "GPT-OSS 20B", provider: "Groq" },
-  "mistral-small": { name: "Mistral Small", provider: "Mistral" },
+  "mistral-small": {
+    name: "Mistral Small 3.2 24B",
+    provider: "OpenRouter",
+  },
 };
 
 export interface ModelCallError {
@@ -85,9 +94,26 @@ export interface ModelCallError {
   error: string;
 }
 
+function getOpenRouterReportedCost(metadata: unknown): number | undefined {
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+    return undefined;
+  }
+  const openrouter = "openrouter" in metadata ? metadata.openrouter : undefined;
+  if (typeof openrouter !== "object" || openrouter === null || Array.isArray(openrouter)) {
+    return undefined;
+  }
+  const usage = "usage" in openrouter ? openrouter.usage : undefined;
+  if (typeof usage !== "object" || usage === null || Array.isArray(usage)) {
+    return undefined;
+  }
+  const cost = "cost" in usage ? usage.cost : undefined;
+  return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
+}
+
 export async function callModel(
   modelId: string,
-  prompt: string
+  prompt: string,
+  options: { maxRetries?: number } = {}
 ): Promise<TestResult | ModelCallError> {
   const display = MODEL_DISPLAY[modelId];
   if (!display) {
@@ -104,6 +130,7 @@ export async function callModel(
       model,
       prompt,
       maxOutputTokens: 2048,
+      maxRetries: options.maxRetries,
     });
     const latencyMs = Date.now() - start;
 
@@ -111,8 +138,12 @@ export async function callModel(
       result.usage.totalTokens ??
       (result.usage.inputTokens ?? 0) + (result.usage.outputTokens ?? 0);
 
+    const openRouterCost = getOpenRouterReportedCost(result.providerMetadata);
     const pricePer1M = PRICING_PER_1M_TOKENS[modelId] ?? 0;
-    const costUsd = (totalTokens / 1_000_000) * pricePer1M;
+    const costUsd =
+      typeof openRouterCost === "number"
+        ? openRouterCost
+        : (totalTokens / 1_000_000) * pricePer1M;
 
     return {
       modelId,

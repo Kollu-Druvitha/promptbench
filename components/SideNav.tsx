@@ -6,6 +6,7 @@ import AuthMenu from "./AuthMenu";
 
 const NAV_ITEMS = [
   { href: "/", label: "New Test", icon: "add_box" },
+  { href: "/batch", label: "Batch", icon: "dataset" },
   { href: "/recommend", label: "Recommend", icon: "smart_toy" },
   { href: "/results", label: "Results", icon: "analytics" },
   { href: "/compare", label: "Compare", icon: "compare_arrows" },

@@ -123,7 +123,7 @@ export default function TestForm() {
             className="w-4 h-4 rounded-sm bg-surface-container-lowest border-outline-variant text-tertiary-fixed-dim focus:ring-tertiary-fixed-dim focus:ring-offset-background"
           />
           <span className="font-mono-label text-mono-label text-on-surface">
-            {model.id}
+            {model.name}
           </span>
         </div>
         <span className="px-1.5 py-0.5 rounded bg-surface-container border border-outline-variant font-mono-label text-[10px] text-on-surface-variant">

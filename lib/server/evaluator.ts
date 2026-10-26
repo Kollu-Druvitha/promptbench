@@ -27,7 +27,7 @@ function extractJson(text: string): JudgeOutput | null {
   } catch { return null; }
 }
 
-async function callJudge(prompt: string): Promise<string> {
+export async function callJudge(prompt: string): Promise<string> {
   try {
     const res = await generateText({
       model: groq(JUDGE_MODEL_ID),
@@ -140,5 +140,135 @@ Respond with ONLY a JSON object, no other text:
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { category: "D", pass: false, reason: `Evaluation failed: ${message}` };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Batch-evaluation judge metrics (RAGAS-style). Kept here with the rest of the
+// judge logic so they share `callJudge` and its Groq→Gemini fallback, and so
+// lib/server/metrics.ts (the deterministic metrics) stays free of AI-SDK
+// imports and fully unit-testable offline.
+// ---------------------------------------------------------------------------
+
+function extractScoreJson(text: string): number | null {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    const score = Number(parsed.score ?? parsed.faithfulness);
+    if (Number.isFinite(score)) return Math.max(0, Math.min(1, score));
+  } catch {
+    // fall through
+  }
+  // Some judges answer with a bare 0..1 number.
+  const bare = cleaned.match(/^\s*(\d(?:\.\d+)?)\s*$/);
+  if (bare) {
+    const n = Number(bare[1]);
+    if (Number.isFinite(n)) return Math.max(0, Math.min(1, n));
+  }
+  return null;
+}
+
+/**
+ * RAGAS-style faithfulness: the judge splits the answer into claims and counts
+ * how many are supported by the provided context. Faithfulness = supported /
+ * total. An answer with no extractable claims scores 1.0 (nothing to be
+ * unfaithful to).
+ */
+export async function evaluateFaithfulness(
+  question: string,
+  context: string,
+  answer: string
+): Promise<{ score: number; note: string }> {
+  const prompt = `You are evaluating an AI assistant's answer for faithfulness to a provided context.
+
+Context:
+"""
+${context}
+"""
+
+Question: "${question}"
+
+Assistant's answer:
+"""
+${answer}
+"""
+
+Steps:
+1. List the factual claims the assistant makes in its answer.
+2. Mark each claim as SUPPORTED (directly supported by the context) or UNSUPPORTED (not in the context, or contradicts it).
+3. faithfulness = supported_claims / total_claims.
+
+Respond with ONLY a JSON object:
+{"supported_claims": <number>, "total_claims": <number>, "score": <0..1>, "reason": "<one sentence, e.g. '2 of 3 claims supported; invented the missing statistic'>"}`;
+
+  try {
+    const text = await callJudge(prompt);
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const total = Number(parsed.total_claims ?? parsed.total);
+    const supported = Number(parsed.supported_claims ?? parsed.supported);
+    if (Number.isFinite(total) && total > 0) {
+      const score = Math.max(0, Math.min(1, supported / total));
+      return {
+        score,
+        note: String(parsed.reason ?? `${supported}/${total} claims supported`),
+      };
+    }
+    if (Number.isFinite(total) && total === 0) {
+      return { score: 1, note: "Answer made no extractable claims." };
+    }
+    const score = extractScoreJson(text);
+    if (score !== null) {
+      return { score, note: String(parsed?.reason ?? "Judge score") };
+    }
+    return { score: 0, note: "Could not parse faithfulness output." };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { score: 0, note: `Faithfulness evaluation failed: ${message}` };
+  }
+}
+
+/**
+ * RAGAS-style answer relevance: how directly does the answer address the
+ * question, regardless of factual correctness? 0..1.
+ */
+export async function evaluateAnswerRelevance(
+  question: string,
+  answer: string
+): Promise<{ score: number; note: string }> {
+  const prompt = `You are evaluating whether an AI assistant's answer is relevant to the question asked.
+
+Question: "${question}"
+
+Assistant's answer:
+"""
+${answer}
+"""
+
+Score the answer's relevance to the question from 0 to 1:
+- 1.0 = directly and fully addresses what was asked.
+- 0.5 = partially addresses it (tangential, or answers a related but different question).
+- 0.0 = completely off-topic.
+
+Respond with ONLY a JSON object:
+{"score": <0..1>, "reason": "<one sentence explaining the score>"}`;
+
+  try {
+    const text = await callJudge(prompt);
+    const score = extractScoreJson(text);
+    if (score !== null) {
+      let note = "Judge score";
+      try {
+        const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+        if (parsed && typeof parsed.reason === "string") note = parsed.reason;
+      } catch {
+        // bare number — no reason available
+      }
+      return { score, note };
+    }
+    return { score: 0, note: "Could not parse relevance output." };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { score: 0, note: `Relevance evaluation failed: ${message}` };
   }
 }

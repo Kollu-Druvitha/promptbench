@@ -1,5 +1,5 @@
 import path from "path";
-import { TestRecord } from "@/lib/types";
+import { TestRecord, BatchTestRecord } from "@/lib/types";
 import { kvGetJson, kvSetJson } from "@/lib/server/storage";
 
 // ---------------------------------------------------------------------------
@@ -39,6 +39,9 @@ function dbPathFor(scope: string): string {
 
 interface DbShape {
   tests: TestRecord[];
+  // Batch/dataset evaluation runs. Older db.json files won't have this key —
+  // every accessor below guards with `?? []`.
+  batches?: BatchTestRecord[];
 }
 
 async function ensureDb(scope: string): Promise<DbShape> {
@@ -113,4 +116,32 @@ export async function getStats(scope = "local") {
     Object.entries(modelCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
 
   return { totalTestsRun, totalSpend, mostUsedModel };
+}
+
+// ---------------------------------------------------------------------------
+// Batch evaluation storage. Same scope-aware pattern as tests: the batch runs
+// of a logged-in user live in their private shard, anonymous runs in "local".
+// ---------------------------------------------------------------------------
+
+export async function saveBatch(
+  record: BatchTestRecord,
+  scope = "local"
+): Promise<void> {
+  const db = await ensureDb(scope);
+  db.batches = db.batches ?? [];
+  db.batches.unshift(record); // newest first
+  await writeDb(db, scope);
+}
+
+export async function getBatch(
+  batchId: string,
+  scope = "local"
+): Promise<BatchTestRecord | null> {
+  const db = await ensureDb(scope);
+  return (db.batches ?? []).find((b) => b.batchId === batchId) ?? null;
+}
+
+export async function listBatches(scope = "local"): Promise<BatchTestRecord[]> {
+  const db = await ensureDb(scope);
+  return db.batches ?? [];
 }

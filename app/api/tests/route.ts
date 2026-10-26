@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
         modelName: display.name,
         modelVersion: modelId,
         provider: display.provider,
-        responseText: `⚠️ Model Call Failed: ${errMessage}\n\nNote: If using Google Gemini, make sure your .env.local file contains a valid GOOGLE_GENERATIVE_AI_API_KEY from https://aistudio.google.com/apikey`,
+        responseText: `⚠️ Model Call Failed: ${errMessage}`,
         qualityScore: 0,
         reason: "No score — the model call failed.",
         tokens: 0,

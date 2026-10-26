@@ -32,8 +32,8 @@ export const AVAILABLE_MODELS: ModelOption[] = [
   },
   {
     id: "mistral-small",
-    name: "Mistral Small",
-    provider: "Mistral",
+    name: "Mistral Small 3.2 24B",
+    provider: "OpenRouter",
     enabled: true,
   },
   // Paid models — shown for the full comparison story, wire up later

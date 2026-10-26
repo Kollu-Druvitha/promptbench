@@ -4,16 +4,19 @@ A dashboard for testing the same prompt across multiple LLMs and comparing
 quality, tokens, latency, and cost. Built with Next.js 14 (App Router),
 TypeScript, and Tailwind CSS.
 
-This is now a **fully working full-stack app** — real calls to Groq,
-Mistral, and Gemini, a working LLM-as-judge evaluator, RAG retrieval over
-uploaded context files, and local persistence. No paid services required.
+This is now a **fully working full-stack app** — real calls to Groq, Gemini,
+and Mistral Small through OpenRouter, a working LLM-as-a-judge evaluator, RAG
+retrieval over uploaded context files, and local persistence.
 
 ## Getting started
 
 1. Copy `.env.local.example` to `.env.local`
-2. Fill in your free API keys:
+2. Fill in your API keys:
    - Groq: https://console.groq.com/keys (no card required)
-   - Mistral: https://console.mistral.ai/api-keys (no card required)
+   - OpenRouter: https://openrouter.ai/settings/keys (used for Mistral Small;
+     access and charges depend on your OpenRouter account)
+   - Mistral: https://console.mistral.ai/api-keys (optional; enables dense
+     RAG embeddings; TF-IDF is used without it)
    - Gemini: https://aistudio.google.com/apikey (optional — the free
      tier is rate-limited and can throw `limit: 0` errors)
    - `PROMPTBENCH_SESSION_SECRET`: at least 32 random characters (dev-only
@@ -107,7 +110,8 @@ backend is active.
 1. Push to GitHub. If Vercel is connected to the repo it auto-deploys
    on every push to `main`.
 2. In Vercel → Project → Settings → Environment Variables, set:
-   - `GOOGLE_GENERATIVE_AI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`
+   - `GOOGLE_GENERATIVE_AI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`
+   - `MISTRAL_API_KEY` (optional; enables dense RAG embeddings)
    - `PROMPTBENCH_SESSION_SECRET` (generate a fresh one ≥32 chars)
    - `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (required —
      Vercel's filesystem is read-only, so without these registrations,
@@ -123,8 +127,28 @@ completeness, etc.) — modeled on promptfoo's `llm-rubric` grading pattern.
 The judge is **Groq's `openai/gpt-oss-20b`** (fast, free, reliable) with
 Gemini 3.6 Flash as a fallback. The judge is never a model being evaluated.
 This is a genuine quality grader, but it is **not** a strict
-factuality/hallucination checker for tests without ground truth — batch
-evaluation against a labeled dataset is on the roadmap.
+factuality/hallucination checker for tests without ground truth. Batch runs
+can compare model outputs against reference answers and optionally add
+LLM-judge faithfulness and answer-relevance scores.
+
+## Batch evaluation
+
+Open `/batch` to evaluate a dataset against one or more enabled models. Upload
+a CSV or JSON file with a prompt column (`question`, `prompt`, `input`, `q`, or
+`query`); optional reference columns (`reference`, `ground_truth`, `answer`,
+and related aliases) enable exact match, ROUGE-L, and BLEU scores. Optional
+`context` values make rows grounded RAG questions. Datasets are capped at 100
+valid rows, and invalid rows are reported before and after a run.
+
+LLM-judge metrics are optional and off by default to reduce run time and extra
+model calls. When enabled, faithfulness is evaluated for rows with context,
+while answer relevance is evaluated for every successful model response.
+Batch requests wait for the selected model calls to finish before showing
+results, so start with a small dataset when testing providers. Batch model
+calls allow one retry; regular single-prompt runs use the SDK's default retry
+behavior. Batch runs and per-row results are stored in the same scope-aware
+storage as regular tests and are available from the batch history and results
+pages.
 
 ## RAG
 
@@ -135,8 +159,8 @@ A RAG test with an uploaded context file runs a real retrieval pipeline:
    (`lib/server/rag.ts`).
 2. The most relevant passages are selected by **dense vector retrieval** —
    Mistral's `mistral-embed` embeddings + cosine similarity — which matches
-   *meaning*, not just keywords. If the embeddings provider is unavailable
-   (no `MISTRAL_API_KEY`, rate limit, network), it automatically falls back
+   *meaning*, not just keywords. This requires `MISTRAL_API_KEY`. If the
+   embeddings provider is unavailable (key missing, rate limit, network), it automatically falls back
    to a local TF-IDF retriever. The results page shows which mode was used.
 3. The model answers grounded in those passages via an augmented prompt.
 4. The judge grades **groundedness against the actual retrieved context**
@@ -157,8 +181,8 @@ exactly. See that file for the full token reference.
 
 ## Models
 
-Four models are wired in, all chosen because they have genuinely free API
-tiers (no credit card, no billing setup):
+Four model options are wired in. Provider quotas, access requirements, and
+pricing can change; check your provider accounts before running evaluations:
 
 > **Heads-up (Aug 2026):** Groq no longer hosts Llama *chat* models and
 > older Gemini Flash models (2.0 / 2.5) are shut down. The app keeps its
@@ -169,7 +193,8 @@ tiers (no credit card, no billing setup):
   candidate; 500 tok/s; $0.60 / 1M out
 - **GPT-OSS 20B** (Groq, id `llama-3.1-8b`) — fast/cheap workhorse;
   1000 tok/s; $0.30 / 1M out
-- **Mistral Small** (Mistral) — reliable
+- **Mistral Small 3.2 24B** (OpenRouter) — API-reported usage cost is recorded
+  when provided by OpenRouter
 - **Gemini 3.6 Flash** (Google, id `gemini-2.0-flash`) — enabled but
   best-effort: the free tier frequently throws `limit: 0`/access errors
   (known provider-side issue)
@@ -223,6 +248,4 @@ wrappers around it.
 - GPT-4 / Claude provider integration (paid — off by default)
 - OCR for scanned/image-only PDFs (only embedded text is extracted today;
   legacy `.doc` files aren't supported — re-save as `.docx`/`.pdf`)
-- Batch evaluation against a labeled dataset (on the roadmap)
-- Authentication / multi-user support (currently single-user, local-only)
 - Concurrent-write-safe storage (fine for solo local dev)

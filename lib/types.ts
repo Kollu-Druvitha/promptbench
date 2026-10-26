@@ -107,3 +107,102 @@ export interface PromptComparisonResult {
   evalId: string;
   metrics: ComparisonMetric[];
 }
+
+// ---------------------------------------------------------------------------
+// Batch evaluation (dataset mode)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single row of a batch dataset. `question` is the prompt sent to each
+ * model. `reference` (optional) is the ground-truth answer used by the
+ * deterministic metrics (exact-match / ROUGE-L / BLEU). `context` (optional)
+ * turns the row into a RAG question — the model is given this context and the
+ * LLM-judge scores how faithful the answer stays to it.
+ */
+export interface DatasetItem {
+  id: string;
+  question: string;
+  reference?: string;
+  context?: string;
+}
+
+/**
+ * The objective/LLM-judge metrics computed per (item × model). All values are
+ * 0..1 (higher = better) except judgeNotes, so a model summary can simply
+ * average them.
+ */
+export type BatchMetricKey =
+  | "exactMatch"
+  | "rougeL"
+  | "bleu"
+  | "faithfulness"
+  | "answerRelevance";
+
+/** Per (item × model) outcome inside a batch run. */
+export interface BatchItemScore {
+  itemId: string;
+  modelId: string;
+  modelName: string;
+  response: string;
+  /** Which metrics were computed for this row (missing = not applicable). */
+  metrics: Partial<Record<BatchMetricKey, number>>;
+  /** Short justification from the judge for faithfulness / answer-relevance. */
+  judgeNote?: string;
+  tokens: number;
+  latencyMs: number;
+  costUsd: number;
+  /** Set when the model call failed for this row (response then holds the error). */
+  error?: string;
+}
+
+/** Aggregated per-model performance across all items of a batch run. */
+export interface BatchModelSummary {
+  modelId: string;
+  modelName: string;
+  provider: string;
+  itemCount: number;
+  /** Mean of each metric across items (only metrics that were applicable). */
+  metrics: Partial<Record<BatchMetricKey, number>>;
+  /**
+   * Overall accuracy: the mean of every available per-metric mean (so a run
+   * with only references averages exactMatch/rougeL/bleu; a RAG run with
+   * contexts averages faithfulness + answerRelevance on top). 0..1.
+   */
+  overallScore: number;
+  totalTokens: number;
+  totalLatencyMs: number;
+  totalCostUsd: number;
+  errorCount: number;
+}
+
+export interface BatchTestRecord {
+  batchId: string;
+  date: string; // ISO string
+  name: string;
+  testType: TestType;
+  /** The logged-in owner (userId) this run belongs to; undefined for "local". */
+  ownerId?: string;
+  modelIds: string[];
+  /** The parsed dataset (so results pages can render each question). */
+  items: DatasetItem[];
+  /** Flat list of every (item × model) outcome. */
+  perItem: BatchItemScore[];
+  /** Per-model aggregates, ranked by overallScore descending. */
+  summaries: BatchModelSummary[];
+  /** Rows skipped while parsing the uploaded file (warnings, not failures). */
+  datasetErrors?: string[];
+  /** Models that failed on every item. */
+  partialErrors?: { modelId: string; error: string }[];
+  /** True when the uploaded dataset was larger than the cap and was trimmed. */
+  truncated?: boolean;
+}
+
+export interface SubmitBatchTestInput {
+  name?: string;
+  testType: TestType;
+  modelIds: string[];
+  fileName: string;
+  fileText: string;
+  /** Run the LLM-judge metrics (faithfulness / answer-relevance). Default true. */
+  judgeMetrics?: boolean;
+}

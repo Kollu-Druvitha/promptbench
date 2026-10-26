@@ -1,7 +1,9 @@
 import {
+  BatchTestRecord,
   DashboardStats,
   PromptComparisonInput,
   PromptComparisonResult,
+  SubmitBatchTestInput,
   SubmitTestInput,
   TestRecord,
 } from "./types";
@@ -213,4 +215,62 @@ export async function updatePrefs(
     body: JSON.stringify(prefs),
   });
   return parseJsonOrThrow(res);
+}
+
+// ── Batch evaluation API ───────────────────────────────────────────────────
+
+export async function runBatchTest(
+  input: SubmitBatchTestInput
+): Promise<{ batchId: string; record: BatchTestRecord }> {
+  const res = await fetch("/api/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: input.name ?? undefined,
+      testType: input.testType,
+      modelIds: input.modelIds,
+      fileName: input.fileName,
+      fileText: input.fileText,
+      judgeMetrics: input.judgeMetrics ?? true,
+    }),
+  });
+  const data = await parseJsonOrThrow(res);
+  if (data.record) cacheBatchRecord(data.record);
+  return { batchId: data.batchId, record: data.record };
+}
+
+export async function getBatchResult(batchId: string): Promise<BatchTestRecord | null> {
+  const res = await fetch(`/api/batch/${batchId}`);
+  if (res.status === 404) return null;
+  return parseJsonOrThrow(res);
+}
+
+export async function listBatchTests(): Promise<BatchTestRecord[]> {
+  const res = await fetch("/api/batch");
+  return parseJsonOrThrow(res);
+}
+
+// Same client-side recovery trick as single tests: cache the record in
+// sessionStorage so the results page can render it even if a serverless host
+// lost the ephemeral in-memory fallback.
+const BATCH_CACHE_PREFIX = "pb:batch:";
+
+export function cacheBatchRecord(record: BatchTestRecord): void {
+  try {
+    sessionStorage.setItem(
+      `${BATCH_CACHE_PREFIX}${record.batchId}`,
+      JSON.stringify(record)
+    );
+  } catch {
+    // Private mode / quota — cache is best-effort.
+  }
+}
+
+export function getCachedBatchRecord(batchId: string): BatchTestRecord | null {
+  try {
+    const raw = sessionStorage.getItem(`${BATCH_CACHE_PREFIX}${batchId}`);
+    return raw ? (JSON.parse(raw) as BatchTestRecord) : null;
+  } catch {
+    return null;
+  }
 }
